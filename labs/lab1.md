@@ -268,7 +268,6 @@ PR checklist (paste this into your PR body):
 ```text
 - [x] Task 1 done — Juice Shop deployed, triage report in submissions/lab1.md
 - [ ] Task 2 done — .github/PULL_REQUEST_TEMPLATE.md created
-- [ ] Task 3 done — GitHub stars + follows complete
 - [ ] Bonus done — lab1-smoke.yml runs green on this PR
 ```
 
@@ -288,11 +287,6 @@ PR checklist (paste this into your PR body):
 - ✅ Template includes all four required sections
 - ✅ Template includes a 3-item checklist
 - ✅ Auto-fill verified (PR description shows the template before any manual edits)
-
-### Task 3 (1 pt)
-- ✅ Starred course repo and simple-container-com/api
-- ✅ Following professor, TAs, and 3+ classmates
-- ✅ GitHub Community section in submission
 
 ### Bonus Task (2 pts)
 - ✅ `.github/workflows/lab1-smoke.yml` exists and triggers on `pull_request`
