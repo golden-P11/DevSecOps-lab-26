@@ -5,7 +5,7 @@
 ### Scope & Asset
 
 - Asset: OWASP Juice Shop (local lab instance)
-- Image: `example: bkimminich/juice-shop:v20.0.0`
+- Image: `bkimminich/juice-shop:v20.0.0`
 - Image digest: `REPLACE_WITH_OUTPUT_OF_DOCKER_INSPECT`
 - Host OS: `REPLACE_WITH_HOST_OS`
 - Docker version: `REPLACE_WITH_DOCKER_VERSION`
