@@ -61,7 +61,7 @@ git switch -c feature/lab1
 The course pins to **v20.0.0** (released May 2026, Node 24, ~125 MB image — Lecture 1 mentioned this is the leanest the image has been since v8).
 
 ```bash
-sudo docker run -d --name juice-shop \
+docker run -d --name juice-shop \
   -p 127.0.0.1:3000:3000 \
   bkimminich/juice-shop:v20.0.0
 ```
