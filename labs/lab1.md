@@ -303,6 +303,6 @@ PR checklist (paste this into your PR body):
 | **Task 1** — Deploy + Triage | **6** | Container running on localhost-only port + full triage report with real values + headers analysis + 3 risks mapped to OWASP Top 10:2025 |
 | **Task 2** — PR Template | **3** | All 4 sections + 3-item checklist + auto-fill working on a real PR |
 | **Bonus Task** — CI Smoke Test | **2** | Green workflow run on the submitted PR with proper permissions block and timeout-bounded healthcheck |
-| **Total** | **12** | 9 main + 2 bonus |
+| **Total** | **11** | 9 main + 2 bonus |
 
 ---
