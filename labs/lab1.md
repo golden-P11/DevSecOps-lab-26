@@ -196,44 +196,6 @@ Add a section:
 
 ---
 
-## Task 3 — GitHub Community Engagement (1 pt)
-
-**Objective:** Explore GitHub's social features that support collaboration and discovery.
-
-**Actions Required:**
-1. **Star** the course repository
-2. **Star** the [simple-container-com/api](https://github.com/simple-container-com/api) project — a promising open-source tool for container management
-3. **Follow** your professor and TAs on GitHub:
-   - Professor: [@Cre-eD](https://github.com/Cre-eD)
-   - TA: [@Naghme98](https://github.com/Naghme98)
-   - TA: [@pierrepicaud](https://github.com/pierrepicaud)
-4. **Follow** at least 3 classmates from the course
-
-**Add to `submissions/lab1.md`:**
-
-A "GitHub Community" section with 1-2 sentences explaining:
-- Why starring repositories matters in open source
-- How following developers helps in team projects and professional growth
-
-<details>
-<summary>💡 GitHub Social Features</summary>
-
-**Why Stars Matter:**
-- Stars help you bookmark interesting projects for later reference
-- Star count indicates project popularity and community trust
-- Starred repos appear in your GitHub profile, showing your interests
-- Stars encourage maintainers and help projects gain visibility
-
-**Why Following Matters:**
-- See what other developers are working on
-- Discover new projects through their activity
-- Build professional connections beyond the classroom
-- Stay updated on classmates' work for future collaboration
-
-</details>
-
----
-
 ## Bonus Task — Smoke-Test Workflow in GitHub Actions (2 pts)
 
 > 🌟 **Genuinely challenging — not just wiring.** This task previews Lecture 4 (CI/CD Security). You'll write a real workflow that runs Juice Shop in CI and verifies it works.
