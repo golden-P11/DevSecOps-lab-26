@@ -39,7 +39,7 @@ Docker Hub may be used in later labs to:
 - Pull public container images.
 - Push your own container images.
 - Authenticate from CI/CD pipelines.
-
+DevSecOps-lab-26
 After creating the account, verify that you can sign in successfully.
 
 ---
@@ -433,12 +433,6 @@ Expected output:
 ---
 
 ### 4.4 Create the Lab 00 file
-
-Create the required directory:
-
-```bash
-mkdir -p labs
-```
 
 Create the file:
 
