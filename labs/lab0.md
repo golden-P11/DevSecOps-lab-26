@@ -335,16 +335,9 @@ If you clone the original lab repository, change its remote, and push it directl
 - Original contributor information.
 - Workflow files that were not part of your submission.
 
-To avoid this, use two separate local directories:
-
-```text
-~/devsecops-labs/DevSecOps-lab-26/       # Source lab repository
-~/devsecops-labs/devsecops-submissions/  # Your personal submission repository
-```
-
 The source repository is used for reading instructions and doing exercises.
 
-The personal submission repository contains only the files that you are required to submit.
+The submissions sub folder contains only the files that you are required to submit.
 
 ---
 
