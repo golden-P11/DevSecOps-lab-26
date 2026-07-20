@@ -348,7 +348,7 @@ The submissions sub folder contains only the files that you are required to subm
 Return to the parent directory:
 
 ```bash
-cd ~/devsecops-labs
+cd DevSecOps-lab-26
 ```
 
 Initialize Git:
