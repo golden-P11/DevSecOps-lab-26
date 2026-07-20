@@ -118,19 +118,10 @@ Headers missing from the response:
 - Auto-fill verified: [x] Yes — the PR description showed the template before manual editing
 - Draft PR evidence: `REPLACE_WITH_DRAFT_PR_URL_OR_SCREENSHOT_PATH`
 
-## GitHub Community
-
-I starred the required repositories and followed the required course members.
-Repository stars help users bookmark useful projects, improve project visibility,
-and signal community interest. Following developers helps me discover their work,
-stay informed about team activity, and build professional connections for future
-collaboration.
-
 ## Lab Completion Checklist
 
 - [x] Task 1 done — Juice Shop deployed and triage report created
 - [x] Task 2 done — `.github/PULL_REQUEST_TEMPLATE.md` created and auto-fill verified
-- [ ] Task 3 done — required stars and follows completed
 - [ ] Bonus done — `.github/workflows/lab1-smoke.yml` runs successfully
 
 ## Bonus: CI Smoke Test
