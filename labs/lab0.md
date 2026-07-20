@@ -491,7 +491,7 @@ Expected result:
 
 ```text
 Untracked files:
-  lsubmissions/lab0.md
+  submissions/lab0.md
 ```
 
 Only add the required submission file:
