@@ -640,9 +640,9 @@ git switch main
 git pull origin main
 git switch -c feature/lab1
 
-nano labs/lab1.md
+nano submissions/lab1.md
 
-git add labs/lab1.md
+git add submissions/lab1.md
 git commit -m "Add Lab 1 submission"
 git push -u origin feature/lab1
 ```
@@ -657,10 +657,10 @@ Recommended naming convention:
 
 | Lab | Branch | Submission file |
 |---|---|---|
-| Lab 00 | `feature/lab0` | `labs/lab0.md` |
-| Lab 1 | `feature/lab1` | `labs/lab1.md` |
-| Lab 2 | `feature/lab2` | `labs/lab2.md` |
-| Lab N | `feature/labN` | `labs/labN.md` |
+| Lab 00 | `feature/lab0` | `submissions/lab0.md` |
+| Lab 1 | `feature/lab1` | `submissions/lab1.md` |
+| Lab 2 | `feature/lab2` | `submissions/lab2.md` |
+| Lab 3 | `feature/lab3` | `submissions/lab3.md` |
 
 ---
 
