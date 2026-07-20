@@ -253,14 +253,7 @@ In Lab 00, you will:
 
 ### 2.2 Clone the lab repository
 
-Inside Ubuntu WSL, choose a working directory:
-
-```bash
-mkdir -p ~/devsecops-labs
-cd ~/devsecops-labs
-```
-
-Clone the source repository:
+Inside Ubuntu WSL, clone the source repository:
 
 ```bash
 git clone https://github.com/golden-P11/DevSecOps-lab-26.git
