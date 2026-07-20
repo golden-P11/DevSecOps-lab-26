@@ -621,12 +621,6 @@ git switch main
 git pull origin main
 ```
 
-Delete the local feature branch:
-
-```bash
-git branch -d feature/lab0
-```
-
 ---
 
 ## 5. Workflow for Future Labs
