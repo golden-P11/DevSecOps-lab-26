@@ -457,7 +457,7 @@ mkdir -p labs
 Create the file:
 
 ```bash
-nano labs/lab0.md
+nano submissions/lab0.md
 ```
 
 Example content:
@@ -511,13 +511,13 @@ Expected result:
 
 ```text
 Untracked files:
-  labs/lab0.md
+  lsubmissions/lab0.md
 ```
 
 Only add the required submission file:
 
 ```bash
-git add labs/lab0.md
+git add submissions/lab0.md
 ```
 
 DO NOT use the following command unless you intentionally want to add every changed file: "git add ."
@@ -532,7 +532,7 @@ git status
 You should see only:
 
 ```text
-new file: labs/lab0.md
+new file: submissions/lab0.md
 ```
 
 ---
@@ -560,7 +560,7 @@ git diff HEAD~1 --name-only
 Expected output:
 
 ```text
-labs/lab0.md
+submissions/lab0.md
 ```
 
 ---
