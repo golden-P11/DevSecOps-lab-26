@@ -139,10 +139,6 @@ Which of these are MISSING? (cross-reference Lecture 1 OWASP Top 10:2025 — A06
 - [ ] `X-Content-Type-Options: nosniff`
 - [ ] `X-Frame-Options`
 
-### Top 3 Risks Observed (2-3 sentences each, in your own words)
-1. **<risk name>** — <why it matters; map to one OWASP Top 10:2025 category>
-2. **<risk name>** — <why; map to OWASP>
-3. **<risk name>** — <why; map to OWASP>
 ````
 
 ### 1.4: Cleanup (when done)
