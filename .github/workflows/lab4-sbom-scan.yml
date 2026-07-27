@@ -1,0 +1,72 @@
+name: Lab 4 - SBOM and SCA
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: bkimminich/juice-shop:v20.0.0
+  REPORT_DIR: labs/lab4/reports
+
+jobs:
+  sbom-and-sca:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create report directory
+        run: mkdir -p "${REPORT_DIR}"
+
+      - name: Pull container image
+        run: docker pull "${IMAGE}"
+
+      - name: Generate CycloneDX SBOM with Syft
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}
+          format: cyclonedx-json
+          output-file: labs/lab4/reports/juice-shop.cdx.json
+          upload-artifact: false
+
+      - name: Generate SPDX SBOM with Syft
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}
+          format: spdx-json
+          output-file: labs/lab4/reports/juice-shop.spdx.json
+          upload-artifact: false
+
+      - name: Scan SBOM with Grype
+        uses: anchore/scan-action@v7
+        with:
+          sbom: labs/lab4/reports/juice-shop.cdx.json
+          output-format: json
+          output-file: labs/lab4/reports/grype-report.json
+          fail-build: false
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE }}
+          scanners: vuln
+          severity: LOW,MEDIUM,HIGH,CRITICAL
+          format: json
+          output: labs/lab4/reports/trivy-report.json
+          exit-code: "0"
+
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab4-sbom-sca-reports
+          path: labs/lab4/reports/
+          retention-days: 30
