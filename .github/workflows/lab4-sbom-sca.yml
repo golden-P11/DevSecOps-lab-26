@@ -1,4 +1,4 @@
-name: Lab 4 - SBOM and SCA
+name: SBOM and SCA
 
 on:
   pull_request:
