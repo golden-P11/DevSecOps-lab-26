@@ -1,4 +1,4 @@
-name: Supply Chain Security
+name: lab8-Supply Chain Security
 
 on:
   pull_request:
@@ -44,27 +44,30 @@ jobs:
           mkdir -p "${RESULTS_DIR}"
           docker pull "${IMAGE}"
           docker tag "${IMAGE}" "${LOCAL_IMAGE}"
-          docker push "${LOCAL_IMAGE}"
-          docker inspect "${LOCAL_IMAGE}" \
-            --format '{{index .RepoDigests 0}}' > "${RESULTS_DIR}/juice-shop-digest.txt"
+          # Capture digest from push output — NOT RepoDigests[0], which points at Docker Hub
+          DIGEST=$(docker push "${LOCAL_IMAGE}" 2>&1 | awk '/digest:/ {print $3}')
+          echo "localhost:5000/juice-shop@${DIGEST}" > "${RESULTS_DIR}/juice-shop-digest.txt"
           cat "${RESULTS_DIR}/juice-shop-digest.txt"
 
       - name: Generate ephemeral Cosign keypair
         run: cosign generate-key-pair
 
       - name: Sign and verify image digest
+        id: cosign-sign-verify
+        continue-on-error: true
         run: |
           DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
           cosign sign \
             --key cosign.key \
             --yes \
+            --tlog-upload=false \
             --allow-insecure-registry \
-            "${DIGEST}"
+            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/cosign-sign.log"
           cosign verify \
             --key cosign.pub \
             --insecure-ignore-tlog \
             --allow-insecure-registry \
-            "${DIGEST}"
+            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/cosign-verify.json"
 
       - name: Upload sign-verify artifacts
         if: always()
@@ -72,10 +75,14 @@ jobs:
         with:
           name: lab8-cosign-sign-verify
           path: |
-            ${{ env.RESULTS_DIR }}/juice-shop-digest.txt
+            ${{ env.RESULTS_DIR }}/
             cosign.pub
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Fail on Cosign sign or verify error
+        if: steps.cosign-sign-verify.outcome == 'failure'
+        run: exit 1
 
   sbom-provenance-attest:
     name: Cosign — SBOM + Provenance Attestation
@@ -103,23 +110,36 @@ jobs:
           mkdir -p "${RESULTS_DIR}"
           docker pull "${IMAGE}"
           docker tag "${IMAGE}" "${LOCAL_IMAGE}"
-          docker push "${LOCAL_IMAGE}"
-          docker inspect "${LOCAL_IMAGE}" \
-            --format '{{index .RepoDigests 0}}' > "${RESULTS_DIR}/juice-shop-digest.txt"
+          DIGEST=$(docker push "${LOCAL_IMAGE}" 2>&1 | awk '/digest:/ {print $3}')
+          echo "localhost:5000/juice-shop@${DIGEST}" > "${RESULTS_DIR}/juice-shop-digest.txt"
+          cat "${RESULTS_DIR}/juice-shop-digest.txt"
+
+      - name: Generate CycloneDX SBOM with Syft
+        id: syft-sbom
+        continue-on-error: true
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}
+          format: cyclonedx-json
+          output-file: ${{ env.RESULTS_DIR }}/juice-shop.cdx.json
+          upload-artifact: false
 
       - name: Generate ephemeral Cosign keypair
         run: cosign generate-key-pair
 
       - name: Attach CycloneDX SBOM attestation
+        id: cosign-sbom-attest
+        continue-on-error: true
         run: |
           DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
           cosign attest \
             --key cosign.key \
             --type cyclonedx \
-            --predicate labs/lab4/juice-shop.cdx.json \
+            --predicate "${RESULTS_DIR}/juice-shop.cdx.json" \
+            --tlog-upload=false \
             --allow-insecure-registry \
             --yes \
-            "${DIGEST}"
+            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/sbom-attest.log"
           cosign verify-attestation \
             --key cosign.pub \
             --insecure-ignore-tlog \
@@ -129,6 +149,8 @@ jobs:
             > "${RESULTS_DIR}/sbom-from-attestation.json"
 
       - name: Attach SLSA provenance attestation
+        id: cosign-provenance-attest
+        continue-on-error: true
         run: |
           DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
           jq -n \
@@ -151,7 +173,7 @@ jobs:
             --tlog-upload=false \
             --allow-insecure-registry \
             --yes \
-            "${DIGEST}"
+            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/provenance-attest.log"
           cosign verify-attestation \
             --key cosign.pub \
             --insecure-ignore-tlog \
@@ -167,6 +189,13 @@ jobs:
           path: ${{ env.RESULTS_DIR }}/
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Fail on SBOM or attestation error
+        if: |
+          steps.syft-sbom.outcome == 'failure' ||
+          steps.cosign-sbom-attest.outcome == 'failure' ||
+          steps.cosign-provenance-attest.outcome == 'failure'
+        run: exit 1
 
   blob-sign-verify:
     name: Cosign — Blob Sign + Verify
@@ -197,17 +226,20 @@ jobs:
         run: cosign generate-key-pair
 
       - name: Sign and verify blob
+        id: cosign-blob-sign
+        continue-on-error: true
         run: |
           cosign sign-blob \
             --key cosign.key \
             --yes \
+            --tlog-upload=false \
             --bundle "${RESULTS_DIR}/my-tool.tar.gz.bundle" \
-            "${RESULTS_DIR}/my-tool.tar.gz"
+            "${RESULTS_DIR}/my-tool.tar.gz" 2>&1 | tee "${RESULTS_DIR}/blob-sign.log"
           cosign verify-blob \
             --key cosign.pub \
             --bundle "${RESULTS_DIR}/my-tool.tar.gz.bundle" \
             --insecure-ignore-tlog \
-            "${RESULTS_DIR}/my-tool.tar.gz"
+            "${RESULTS_DIR}/my-tool.tar.gz" 2>&1 | tee "${RESULTS_DIR}/blob-verify.log"
 
       - name: Upload blob signing artifacts
         if: always()
@@ -215,8 +247,11 @@ jobs:
         with:
           name: lab8-blob-sign-verify
           path: |
-            ${{ env.RESULTS_DIR }}/my-tool.tar.gz
-            ${{ env.RESULTS_DIR }}/my-tool.tar.gz.bundle
+            ${{ env.RESULTS_DIR }}/
             cosign.pub
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Fail on blob sign or verify error
+        if: steps.cosign-blob-sign.outcome == 'failure'
+        run: exit 1

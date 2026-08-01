@@ -7,7 +7,7 @@
 
 > **Goal:** Sign a release tarball with `cosign sign-blob` (Codecov 2021 mitigation pattern), then automate Cosign sign + attest + blob-verify in a GitHub Actions workflow.
 > **Deliverable:** A PR from `feature/lab8.3` with `.github/workflows/lab8-supply-chain-security.yml` and `submissions/lab8.3.md`. Submit PR link via Moodle.
-> **Prerequisite:** [Lab 8.1](lab8.1.md) recommended — you should understand Cosign keyed signing before automating it in CI. Lab 4 SBOM (`labs/lab4/juice-shop.cdx.json`) must exist for the attestation job to pass.
+> **Prerequisite:** [Lab 8.1](lab8.1.md) recommended — you should understand Cosign keyed signing before automating it in CI.
 
 > **Part of Lab 8:** This is the blob signing + CI half of Lab 8. Complete **[Lab 8.1](lab8.1.md)** and **[Lab 8.2](lab8.2.md)** separately.
 
@@ -28,9 +28,6 @@ Reference workflow: [`.github/workflows/lab8-supply-chain-security.yml`](../.git
 **You should have from Lab 8.1:**
 - Cosign keypair at `labs/lab8/keys/` (for local blob signing)
 - Familiarity with digest-bound signing and tamper demos
-
-**You should have from Lab 4:**
-- `labs/lab4/juice-shop.cdx.json` — required by the CI attestation job
 
 **This lab adds:**
 - Local blob signing + tamper verification
@@ -162,7 +159,7 @@ that would have caught it.
 
 **Objective:** Copy the reference workflow into your fork, push it, trigger a run, and document what each job and step does.
 
-> **Green status requirement:** This pipeline is designed to **pass with green status** when `labs/lab4/juice-shop.cdx.json` is present in your fork. Each job uses an **ephemeral Cosign keypair** generated on the runner (CI demo keys — not your Lab 8.1 local keys). All three jobs must complete successfully.
+> **Green status requirement:** This pipeline is designed to **pass with green status** on any fork with Actions enabled — no pre-committed SBOM file required. The attestation job generates a CycloneDX SBOM with Syft at runtime. Each job uses an **ephemeral Cosign keypair** on the runner (CI demo keys — not your Lab 8.1 local keys). All three jobs must complete successfully.
 
 ### 8.3.6: Create the workflow file
 
@@ -222,27 +219,30 @@ jobs:
           mkdir -p "${RESULTS_DIR}"
           docker pull "${IMAGE}"
           docker tag "${IMAGE}" "${LOCAL_IMAGE}"
-          docker push "${LOCAL_IMAGE}"
-          docker inspect "${LOCAL_IMAGE}" \
-            --format '{{index .RepoDigests 0}}' > "${RESULTS_DIR}/juice-shop-digest.txt"
+          # Capture digest from push output — NOT RepoDigests[0], which points at Docker Hub
+          DIGEST=$(docker push "${LOCAL_IMAGE}" 2>&1 | awk '/digest:/ {print $3}')
+          echo "localhost:5000/juice-shop@${DIGEST}" > "${RESULTS_DIR}/juice-shop-digest.txt"
           cat "${RESULTS_DIR}/juice-shop-digest.txt"
 
       - name: Generate ephemeral Cosign keypair
         run: cosign generate-key-pair
 
       - name: Sign and verify image digest
+        id: cosign-sign-verify
+        continue-on-error: true
         run: |
           DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
           cosign sign \
             --key cosign.key \
             --yes \
+            --tlog-upload=false \
             --allow-insecure-registry \
-            "${DIGEST}"
+            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/cosign-sign.log"
           cosign verify \
             --key cosign.pub \
             --insecure-ignore-tlog \
             --allow-insecure-registry \
-            "${DIGEST}"
+            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/cosign-verify.json"
 
       - name: Upload sign-verify artifacts
         if: always()
@@ -250,10 +250,14 @@ jobs:
         with:
           name: lab8-cosign-sign-verify
           path: |
-            ${{ env.RESULTS_DIR }}/juice-shop-digest.txt
+            ${{ env.RESULTS_DIR }}/
             cosign.pub
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Fail on Cosign sign or verify error
+        if: steps.cosign-sign-verify.outcome == 'failure'
+        run: exit 1
 
   sbom-provenance-attest:
     name: Cosign — SBOM + Provenance Attestation
@@ -281,23 +285,36 @@ jobs:
           mkdir -p "${RESULTS_DIR}"
           docker pull "${IMAGE}"
           docker tag "${IMAGE}" "${LOCAL_IMAGE}"
-          docker push "${LOCAL_IMAGE}"
-          docker inspect "${LOCAL_IMAGE}" \
-            --format '{{index .RepoDigests 0}}' > "${RESULTS_DIR}/juice-shop-digest.txt"
+          DIGEST=$(docker push "${LOCAL_IMAGE}" 2>&1 | awk '/digest:/ {print $3}')
+          echo "localhost:5000/juice-shop@${DIGEST}" > "${RESULTS_DIR}/juice-shop-digest.txt"
+          cat "${RESULTS_DIR}/juice-shop-digest.txt"
+
+      - name: Generate CycloneDX SBOM with Syft
+        id: syft-sbom
+        continue-on-error: true
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}
+          format: cyclonedx-json
+          output-file: ${{ env.RESULTS_DIR }}/juice-shop.cdx.json
+          upload-artifact: false
 
       - name: Generate ephemeral Cosign keypair
         run: cosign generate-key-pair
 
       - name: Attach CycloneDX SBOM attestation
+        id: cosign-sbom-attest
+        continue-on-error: true
         run: |
           DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
           cosign attest \
             --key cosign.key \
             --type cyclonedx \
-            --predicate labs/lab4/juice-shop.cdx.json \
+            --predicate "${RESULTS_DIR}/juice-shop.cdx.json" \
+            --tlog-upload=false \
             --allow-insecure-registry \
             --yes \
-            "${DIGEST}"
+            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/sbom-attest.log"
           cosign verify-attestation \
             --key cosign.pub \
             --insecure-ignore-tlog \
@@ -307,6 +324,8 @@ jobs:
             > "${RESULTS_DIR}/sbom-from-attestation.json"
 
       - name: Attach SLSA provenance attestation
+        id: cosign-provenance-attest
+        continue-on-error: true
         run: |
           DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
           jq -n \
@@ -329,7 +348,7 @@ jobs:
             --tlog-upload=false \
             --allow-insecure-registry \
             --yes \
-            "${DIGEST}"
+            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/provenance-attest.log"
           cosign verify-attestation \
             --key cosign.pub \
             --insecure-ignore-tlog \
@@ -345,6 +364,13 @@ jobs:
           path: ${{ env.RESULTS_DIR }}/
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Fail on SBOM or attestation error
+        if: |
+          steps.syft-sbom.outcome == 'failure' ||
+          steps.cosign-sbom-attest.outcome == 'failure' ||
+          steps.cosign-provenance-attest.outcome == 'failure'
+        run: exit 1
 
   blob-sign-verify:
     name: Cosign — Blob Sign + Verify
@@ -375,17 +401,20 @@ jobs:
         run: cosign generate-key-pair
 
       - name: Sign and verify blob
+        id: cosign-blob-sign
+        continue-on-error: true
         run: |
           cosign sign-blob \
             --key cosign.key \
             --yes \
+            --tlog-upload=false \
             --bundle "${RESULTS_DIR}/my-tool.tar.gz.bundle" \
-            "${RESULTS_DIR}/my-tool.tar.gz"
+            "${RESULTS_DIR}/my-tool.tar.gz" 2>&1 | tee "${RESULTS_DIR}/blob-sign.log"
           cosign verify-blob \
             --key cosign.pub \
             --bundle "${RESULTS_DIR}/my-tool.tar.gz.bundle" \
             --insecure-ignore-tlog \
-            "${RESULTS_DIR}/my-tool.tar.gz"
+            "${RESULTS_DIR}/my-tool.tar.gz" 2>&1 | tee "${RESULTS_DIR}/blob-verify.log"
 
       - name: Upload blob signing artifacts
         if: always()
@@ -393,11 +422,14 @@ jobs:
         with:
           name: lab8-blob-sign-verify
           path: |
-            ${{ env.RESULTS_DIR }}/my-tool.tar.gz
-            ${{ env.RESULTS_DIR }}/my-tool.tar.gz.bundle
+            ${{ env.RESULTS_DIR }}/
             cosign.pub
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Fail on blob sign or verify error
+        if: steps.cosign-blob-sign.outcome == 'failure'
+        run: exit 1
 ```
 
 Commit and push:
@@ -423,7 +455,7 @@ The workflow runs automatically when you:
    - `Cosign — Blob Sign + Verify`
 4. Download the `lab8-cosign-sign-verify`, `lab8-sbom-provenance-attest`, and `lab8-blob-sign-verify` artifacts
 
-> **Note:** CI uses ephemeral keys (`COSIGN_PASSWORD` in the workflow env) — separate from your Lab 8.1 local keypair. The pipeline fails if `labs/lab4/juice-shop.cdx.json` is missing from your fork.
+> **Note:** CI uses ephemeral keys (`COSIGN_PASSWORD` in the workflow env) — separate from your Lab 8.1 local keypair. Signatures are pushed to the **local registry** (`localhost:5000`), not Docker Hub — the workflow captures the digest from `docker push` output, not `RepoDigests[0]` (which would point at Docker Hub and fail with 401).
 
 ### 8.3.8: Document in `submissions/lab8.3.md`
 
@@ -445,14 +477,20 @@ Explain the purpose of each step (2-3 sentences each):
 #### Triggers (`on:`)
 What events start this workflow, and why run supply-chain checks on both `push` and `pull_request`?
 
+#### Step: Push Juice Shop to local registry
+Why capture the digest from `docker push` output instead of `docker inspect ... RepoDigests[0]`?
+
 #### Step: Sign and verify image digest
-Why sign by **digest** instead of tag? Why use `--allow-insecure-registry` for the local registry?
+Why sign by **digest** instead of tag? Why use `--allow-insecure-registry` and `--tlog-upload=false`?
 
 #### Step: Upload sign-verify artifacts
-What artifact is uploaded, and why use `if: always()`?
+What artifact is uploaded when sign/verify **fails**, and why use `continue-on-error` + `if: always()`?
 
 ### Job: `sbom-provenance-attest` — step explanation
 Explain the purpose of each step (2-3 sentences each):
+
+#### Step: Generate CycloneDX SBOM with Syft
+Why generate the SBOM in CI instead of relying on a committed `labs/lab4/juice-shop.cdx.json`?
 
 #### Step: Attach CycloneDX SBOM attestation
 How does this CI step relate to your Lab 8.2 local attestation work?
