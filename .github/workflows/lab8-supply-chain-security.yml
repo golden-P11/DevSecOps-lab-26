@@ -1,0 +1,222 @@
+name: Supply Chain Security
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  IMAGE: bkimminich/juice-shop:v20.0.0
+  LOCAL_IMAGE: localhost:5000/juice-shop:v20.0.0
+  RESULTS_DIR: labs/lab8/results
+  COSIGN_PASSWORD: ci-lab8-passphrase
+
+jobs:
+  cosign-sign-verify:
+    name: Cosign — Sign + Verify Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.7.0
+        with:
+          cosign-release: v2.4.1
+
+      - name: Start local registry
+        run: |
+          docker run -d --name lab8-registry \
+            -p 127.0.0.1:5000:5000 \
+            registry:2
+          sleep 3
+
+      - name: Push Juice Shop to local registry
+        run: |
+          mkdir -p "${RESULTS_DIR}"
+          docker pull "${IMAGE}"
+          docker tag "${IMAGE}" "${LOCAL_IMAGE}"
+          docker push "${LOCAL_IMAGE}"
+          docker inspect "${LOCAL_IMAGE}" \
+            --format '{{index .RepoDigests 0}}' > "${RESULTS_DIR}/juice-shop-digest.txt"
+          cat "${RESULTS_DIR}/juice-shop-digest.txt"
+
+      - name: Generate ephemeral Cosign keypair
+        run: cosign generate-key-pair
+
+      - name: Sign and verify image digest
+        run: |
+          DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
+          cosign sign \
+            --key cosign.key \
+            --yes \
+            --allow-insecure-registry \
+            "${DIGEST}"
+          cosign verify \
+            --key cosign.pub \
+            --insecure-ignore-tlog \
+            --allow-insecure-registry \
+            "${DIGEST}"
+
+      - name: Upload sign-verify artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab8-cosign-sign-verify
+          path: |
+            ${{ env.RESULTS_DIR }}/juice-shop-digest.txt
+            cosign.pub
+          if-no-files-found: warn
+          retention-days: 30
+
+  sbom-provenance-attest:
+    name: Cosign — SBOM + Provenance Attestation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.7.0
+        with:
+          cosign-release: v2.4.1
+
+      - name: Start local registry
+        run: |
+          docker run -d --name lab8-registry \
+            -p 127.0.0.1:5000:5000 \
+            registry:2
+          sleep 3
+
+      - name: Push Juice Shop to local registry
+        run: |
+          mkdir -p "${RESULTS_DIR}"
+          docker pull "${IMAGE}"
+          docker tag "${IMAGE}" "${LOCAL_IMAGE}"
+          docker push "${LOCAL_IMAGE}"
+          docker inspect "${LOCAL_IMAGE}" \
+            --format '{{index .RepoDigests 0}}' > "${RESULTS_DIR}/juice-shop-digest.txt"
+
+      - name: Generate ephemeral Cosign keypair
+        run: cosign generate-key-pair
+
+      - name: Attach CycloneDX SBOM attestation
+        run: |
+          DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
+          cosign attest \
+            --key cosign.key \
+            --type cyclonedx \
+            --predicate labs/lab4/juice-shop.cdx.json \
+            --allow-insecure-registry \
+            --yes \
+            "${DIGEST}"
+          cosign verify-attestation \
+            --key cosign.pub \
+            --insecure-ignore-tlog \
+            --type cyclonedx \
+            --allow-insecure-registry \
+            "${DIGEST}" | jq -r '.payload | @base64d | fromjson | .predicate' \
+            > "${RESULTS_DIR}/sbom-from-attestation.json"
+
+      - name: Attach SLSA provenance attestation
+        run: |
+          DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
+          jq -n \
+            --arg repo "${{ github.repository }}" \
+            --arg sha "${{ github.sha }}" \
+            '{
+              builder: { id: ("https://github.com/" + $repo + "/actions") },
+              buildType: "https://example.com/lab8/ci-build",
+              invocation: {
+                configSource: {
+                  uri: ("https://github.com/" + $repo),
+                  digest: { sha1: $sha }
+                }
+              }
+            }' > /tmp/predicate-only.json
+          cosign attest \
+            --key cosign.key \
+            --type slsaprovenance \
+            --predicate /tmp/predicate-only.json \
+            --tlog-upload=false \
+            --allow-insecure-registry \
+            --yes \
+            "${DIGEST}"
+          cosign verify-attestation \
+            --key cosign.pub \
+            --insecure-ignore-tlog \
+            --type slsaprovenance \
+            --allow-insecure-registry \
+            "${DIGEST}" > "${RESULTS_DIR}/provenance-verify.json"
+
+      - name: Upload attestation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab8-sbom-provenance-attest
+          path: ${{ env.RESULTS_DIR }}/
+          if-no-files-found: warn
+          retention-days: 30
+
+  blob-sign-verify:
+    name: Cosign — Blob Sign + Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.7.0
+        with:
+          cosign-release: v2.4.1
+
+      - name: Create release artifact
+        run: |
+          mkdir -p "${RESULTS_DIR}"
+          cat > /tmp/install.sh <<'EOF'
+          #!/bin/bash
+          echo "Welcome to my-cool-tool installer"
+          echo "Running setup..."
+          EOF
+          chmod +x /tmp/install.sh
+          tar -czf "${RESULTS_DIR}/my-tool.tar.gz" -C /tmp install.sh
+
+      - name: Generate ephemeral Cosign keypair
+        run: cosign generate-key-pair
+
+      - name: Sign and verify blob
+        run: |
+          cosign sign-blob \
+            --key cosign.key \
+            --yes \
+            --bundle "${RESULTS_DIR}/my-tool.tar.gz.bundle" \
+            "${RESULTS_DIR}/my-tool.tar.gz"
+          cosign verify-blob \
+            --key cosign.pub \
+            --bundle "${RESULTS_DIR}/my-tool.tar.gz.bundle" \
+            --insecure-ignore-tlog \
+            "${RESULTS_DIR}/my-tool.tar.gz"
+
+      - name: Upload blob signing artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab8-blob-sign-verify
+          path: |
+            ${{ env.RESULTS_DIR }}/my-tool.tar.gz
+            ${{ env.RESULTS_DIR }}/my-tool.tar.gz.bundle
+            cosign.pub
+          if-no-files-found: warn
+          retention-days: 30
