@@ -1,0 +1,247 @@
+name: lab9-Runtime Detection
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  RESULTS_DIR: labs/lab9/results
+  CONFTEST_VERSION: "0.68.0"
+  FALCO_VERSION: "0.43.1"
+
+jobs:
+  conftest-k8s:
+    name: Conftest — K8s Hardening Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create results directory
+        run: mkdir -p "${RESULTS_DIR}"
+
+      - name: Install Conftest
+        run: |
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+            | tar xz -C /tmp conftest
+          sudo mv /tmp/conftest /usr/local/bin/conftest
+          conftest --version
+
+      - name: Compliant K8s manifest passes (juice-hardened.yaml)
+        id: conftest-k8s-pass
+        continue-on-error: true
+        run: |
+          conftest test labs/lab9/manifests/k8s/juice-hardened.yaml \
+            --policy labs/lab9/policies/extra/ \
+            --output json \
+            > "${RESULTS_DIR}/conftest-k8s-hardened.json" 2> "${RESULTS_DIR}/conftest-k8s-hardened.stderr"
+          conftest test labs/lab9/manifests/k8s/juice-hardened.yaml \
+            --policy labs/lab9/policies/extra/ \
+            --output stdout \
+            | tee "${RESULTS_DIR}/conftest-k8s-hardened.txt"
+
+      - name: Non-compliant K8s manifest fails (juice-unhardened.yaml)
+        id: conftest-k8s-fail
+        continue-on-error: true
+        run: |
+          set +e
+          conftest test labs/lab9/manifests/k8s/juice-unhardened.yaml \
+            --policy labs/lab9/policies/extra/ \
+            --output json \
+            > "${RESULTS_DIR}/conftest-k8s-unhardened.json" 2> "${RESULTS_DIR}/conftest-k8s-unhardened.stderr"
+          conftest test labs/lab9/manifests/k8s/juice-unhardened.yaml \
+            --policy labs/lab9/policies/extra/ \
+            --output stdout \
+            | tee "${RESULTS_DIR}/conftest-k8s-unhardened.txt"
+          EXIT_CODE=$?
+          set -e
+          if [ "${EXIT_CODE}" -eq 0 ]; then
+            echo "Expected juice-unhardened.yaml to fail Conftest, but it passed."
+            exit 1
+          fi
+          DENY_COUNT=$(grep -c "FAIL" "${RESULTS_DIR}/conftest-k8s-unhardened.txt" || true)
+          if [ "${DENY_COUNT}" -lt 1 ]; then
+            echo "Expected at least one Conftest failure for juice-unhardened.yaml."
+            exit 1
+          fi
+
+      - name: Upload Conftest K8s reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab9-conftest-k8s-report
+          path: |
+            ${{ env.RESULTS_DIR }}/conftest-k8s-hardened.*
+            ${{ env.RESULTS_DIR }}/conftest-k8s-unhardened.*
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Fail on Conftest K8s gate error
+        if: |
+          steps.conftest-k8s-pass.outcome == 'failure' ||
+          steps.conftest-k8s-fail.outcome == 'failure'
+        run: exit 1
+
+  conftest-compose:
+    name: Conftest — Compose Hardening Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create results directory
+        run: mkdir -p "${RESULTS_DIR}"
+
+      - name: Install Conftest
+        run: |
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+            | tar xz -C /tmp conftest
+          sudo mv /tmp/conftest /usr/local/bin/conftest
+          conftest --version
+
+      - name: Compliant compose manifest passes (juice-compose.yml)
+        id: conftest-compose-pass
+        continue-on-error: true
+        run: |
+          conftest test labs/lab9/manifests/compose/juice-compose.yml \
+            --policy labs/lab9/policies/compose-security.rego \
+            --namespace compose.security \
+            --output stdout \
+            | tee "${RESULTS_DIR}/conftest-compose-hardened.txt"
+
+      - name: Non-compliant compose manifest fails
+        id: conftest-compose-fail
+        continue-on-error: true
+        run: |
+          cat > /tmp/bad-compose.yml <<'EOF'
+          services:
+            app:
+              image: nginx:latest
+              ports: ["8080:80"]
+          EOF
+          set +e
+          conftest test /tmp/bad-compose.yml \
+            --policy labs/lab9/policies/compose-security.rego \
+            --namespace compose.security \
+            --output stdout \
+            | tee "${RESULTS_DIR}/conftest-compose-unhardened.txt"
+          EXIT_CODE=$?
+          set -e
+          if [ "${EXIT_CODE}" -eq 0 ]; then
+            echo "Expected bad-compose.yml to fail Conftest, but it passed."
+            exit 1
+          fi
+
+      - name: Upload Conftest compose reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab9-conftest-compose-report
+          path: |
+            ${{ env.RESULTS_DIR }}/conftest-compose-hardened.txt
+            ${{ env.RESULTS_DIR }}/conftest-compose-unhardened.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Fail on Conftest compose gate error
+        if: |
+          steps.conftest-compose-pass.outcome == 'failure' ||
+          steps.conftest-compose-fail.outcome == 'failure'
+        run: exit 1
+
+  falco-runtime:
+    name: Falco — Runtime Detection Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create results directories
+        run: |
+          mkdir -p "${RESULTS_DIR}"
+          mkdir -p labs/lab9/falco/logs labs/lab9/falco/rules
+
+      - name: Start target container
+        run: |
+          docker run -d --name lab9-target alpine:3.20 sleep 1d
+
+      - name: Start Falco with modern eBPF
+        run: |
+          docker run -d --name falco \
+            --privileged \
+            -v /proc:/host/proc:ro \
+            -v /boot:/host/boot:ro \
+            -v /lib/modules:/host/lib/modules:ro \
+            -v /usr:/host/usr:ro \
+            -v /var/run/docker.sock:/host/var/run/docker.sock \
+            -v "$(pwd)/labs/lab9/falco/rules":/etc/falco/rules.d:ro \
+            "falcosecurity/falco:${FALCO_VERSION}" \
+            falco -U \
+                  -o json_output=true \
+                  -o time_format_iso_8601=true
+          sleep 10
+          docker logs falco 2>&1 | grep -i engine | tee "${RESULTS_DIR}/falco-engine.log"
+
+      - name: Trigger baseline Falco alerts
+        id: falco-baseline
+        continue-on-error: true
+        run: |
+          docker exec lab9-target /bin/sh -lc 'echo "shell-in-container test"'
+          docker exec lab9-target /bin/sh -lc 'cat /etc/shadow || true'
+          sleep 5
+          docker logs falco > labs/lab9/falco/logs/falco.log 2>&1
+          grep -E "(Terminal shell|Read sensitive file)" labs/lab9/falco/logs/falco.log \
+            | head -10 \
+            | tee "${RESULTS_DIR}/falco-baseline-alerts.log"
+          grep -q "Terminal shell" "${RESULTS_DIR}/falco-baseline-alerts.log"
+          grep -q "Read sensitive file" "${RESULTS_DIR}/falco-baseline-alerts.log"
+
+      - name: Trigger custom Falco rule (if present)
+        id: falco-custom
+        continue-on-error: true
+        if: hashFiles('labs/lab9/falco/rules/custom-rules.yaml') != ''
+        run: |
+          docker kill --signal=SIGHUP falco && sleep 3
+          docker exec --user 0 lab9-target /bin/sh -lc 'echo "test" > /tmp/my-write.txt'
+          sleep 3
+          docker logs falco >> labs/lab9/falco/logs/falco.log 2>&1
+          grep "Write to /tmp by container" labs/lab9/falco/logs/falco.log \
+            | head -5 \
+            | tee "${RESULTS_DIR}/falco-custom-alert.log"
+          grep -q "Write to /tmp by container" "${RESULTS_DIR}/falco-custom-alert.log"
+
+      - name: Upload Falco runtime reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab9-falco-runtime-report
+          path: |
+            ${{ env.RESULTS_DIR }}/falco-engine.log
+            ${{ env.RESULTS_DIR }}/falco-baseline-alerts.log
+            ${{ env.RESULTS_DIR }}/falco-custom-alert.log
+            labs/lab9/falco/logs/falco.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Stop Falco containers
+        if: always()
+        run: |
+          docker stop falco lab9-target 2>/dev/null || true
+          docker rm falco lab9-target 2>/dev/null || true
+
+      - name: Fail on Falco runtime detection error
+        if: steps.falco-baseline.outcome == 'failure'
+        run: exit 1
