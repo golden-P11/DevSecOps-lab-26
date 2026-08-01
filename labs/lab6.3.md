@@ -147,7 +147,9 @@ jq '[.queries[] | {query: .query_name, severity, count: (.files | length)}]
 
 ## Task 4 — GitHub Actions: IaC Scanning Pipeline (4 pts)
 
-**Objective:** Copy the reference workflow into your fork, push it, trigger a successful run, and document what each job and step does.
+**Objective:** Copy the reference workflow into your fork, push it, trigger a run, and document what each job and step does.
+
+> **Severity policy (native flags):** Checkov uses `--soft-fail --hard-fail-on CRITICAL,HIGH`; KICS uses `--fail-on critical,high`. Either tool fails the job on **any CRITICAL or HIGH** finding. MEDIUM/LOW/INFO do not fail the pipeline. The vulnerable IaC in this lab is deliberately misconfigured, so jobs will likely show **Failure** — that is expected. Reports are still uploaded via `if: always()` on the upload step.
 
 ### 6.3.5: Create the workflow file
 
@@ -203,7 +205,8 @@ jobs:
           checkov -d labs/lab6/vulnerable-iac/terraform \
             --output cli --output json \
             --output-file-path "${RESULTS_DIR}/checkov-terraform/" \
-            --soft-fail
+            --soft-fail \
+            --hard-fail-on CRITICAL,HIGH
 
       - name: Upload Checkov reports
         if: always()
@@ -234,7 +237,7 @@ jobs:
             scan -p /path/vulnerable-iac/ansible/ \
                  -o /path/results/kics-ansible/ \
                  --report-formats json,sarif \
-                 --fail-on none
+                 --fail-on critical,high
 
       - name: Upload KICS Ansible reports
         if: always()
@@ -265,7 +268,7 @@ jobs:
             scan -p /path/vulnerable-iac/pulumi/ \
                  -o /path/results/kics-pulumi/ \
                  --report-formats json,sarif \
-                 --fail-on none
+                 --fail-on critical,high
 
       - name: Upload KICS Pulumi reports
         if: always()
@@ -293,11 +296,12 @@ The workflow runs automatically when you:
 - Manually trigger it: **Actions** tab → **Lab 6 - IaC Scanning** → **Run workflow**
 
 1. Open your fork on GitHub → **Actions** tab
-2. Find the **Lab 6 - IaC Scanning** workflow run triggered by your push or PR
-3. Confirm **all three jobs** (`Checkov — Terraform`, `KICS — Ansible`, `KICS — Pulumi`) show **green checkmarks** (status: **Success**)
-4. Download the `lab6-checkov-reports`, `lab6-kics-ansible-reports`, and `lab6-kics-pulumi-reports` artifacts and verify they contain JSON/SARIF files
+2. Find the **IaC Scanning** workflow run triggered by your push or PR
+3. Confirm all three jobs (`Checkov — Terraform`, `KICS — Ansible`, `KICS — Pulumi`) **complete the scan steps** (not crash with argument/parse errors)
+4. Jobs may show **Failure** at the scan step when CRITICAL/HIGH findings are present — expected on the vulnerable sample
+5. Download the `lab6-checkov-reports`, `lab6-kics-ansible-reports`, and `lab6-kics-pulumi-reports` artifacts — they must exist even when the scan step fails
 
-> **Note:** Findings in the reports do **not** fail the workflow — Checkov uses `--soft-fail` and KICS uses `--fail-on none`. Only scan errors (tool crash, bad path, Docker pull failure) fail the pipeline.
+> **Note:** Checkov combines `--soft-fail` (ignore MEDIUM/LOW) with `--hard-fail-on CRITICAL,HIGH` (exit non-zero on any CRITICAL or HIGH). KICS uses `--fail-on critical,high` for the same policy. Upload steps use `if: always()` so artifacts are saved regardless of scan exit code.
 
 ### 6.3.7: Document in `submissions/lab6.3.md`
 
@@ -309,8 +313,10 @@ Append to your submission file:
 ### Workflow file
 Paste the full content of `.github/workflows/lab6-iac-scanning.yml`:
 
-### Successful workflow run
-- Direct link to a **green (Success)** workflow run (all three jobs must pass): <URL>
+### Workflow run
+- Direct link to a workflow run where all three scans completed: <URL>
+- Which jobs failed due to CRITICAL/HIGH findings? (expected on vulnerable IaC)
+- Confirm all three artifact sets were uploaded despite any scan failure
 
 ### Job: `checkov` — step explanation
 Explain the purpose of each step (2-3 sentences each):
@@ -319,7 +325,7 @@ Explain the purpose of each step (2-3 sentences each):
 What events start this workflow, and why run IaC scans on both `push` and `pull_request`?
 
 #### Step: Run Checkov on Terraform
-What does `--soft-fail` do and why is it set here? How does this match Lab 6.1?
+What do `--soft-fail` and `--hard-fail-on CRITICAL,HIGH` do together? Why not use `--soft-fail` alone?
 
 #### Step: Upload Checkov reports
 What artifact is uploaded, and why use `if: always()`?
@@ -328,7 +334,7 @@ What artifact is uploaded, and why use `if: always()`?
 Explain the purpose of each step (2-3 sentences each):
 
 #### Step: Run KICS on Ansible / Pulumi
-Why run KICS inside Docker? What does `--fail-on none` do?
+Why run KICS inside Docker? What does `--fail-on critical,high` do?
 
 #### Step: Upload KICS reports
 What artifacts are uploaded, and why separate jobs for Ansible vs Pulumi?
@@ -349,7 +355,7 @@ git commit -m "feat(lab6.3): KICS scans + IaC CI workflow + submission"
 git push -u origin feature/lab6.3
 ```
 
-Open a PR to `main` and confirm the **Lab 6 - IaC Scanning** check appears on the PR with all three jobs green.
+Open a PR to `main` and confirm the **IaC Scanning** workflow appears on the PR. Scan failure (red job) on the vulnerable sample is expected; verify artifacts are still downloadable.
 
 > **Do NOT commit** `labs/lab6/results/` — CI generates these on the runner and uploads them as artifacts. The submission paste-in and workflow URL are the evidence.
 
@@ -358,8 +364,8 @@ PR checklist body:
 ```text
 - [ ] Task 3 — KICS on Ansible + Pulumi with Checkov-vs-KICS comparison
 - [ ] Task 4 — lab6-iac-scanning.yml committed
-- [ ] Lab 6 - IaC Scanning workflow run is green (all three jobs Success)
-- [ ] Submission includes workflow URL + step explanations + CI vs local reflection
+- [ ] IaC Scanning workflow: scans complete + artifacts uploaded (CRITICAL/HIGH failure OK on vulnerable IaC)
+- [ ] Submission includes workflow URL + native severity flags + CI vs local reflection
 ```
 
 ---
@@ -372,10 +378,10 @@ PR checklist body:
 - ✅ Checkov-vs-KICS comparison has substantive 2-3-sentence answers per question
 
 ### Task 4 (4 pts)
-- ✅ `.github/workflows/lab6-iac-scanning.yml` exists and matches the reference structure (three jobs: `checkov`, `kics-ansible`, `kics-pulumi`)
-- ✅ Submission includes a direct link to a **successful (green)** GitHub Actions run with all three jobs passing
-- ✅ Checkov job steps explained accurately (`--soft-fail`, artifact upload, triggers)
-- ✅ KICS job steps explained accurately (Docker invocation, `--fail-on none`, separate artifacts)
+- ✅ `.github/workflows/lab6-iac-scanning.yml` exists and matches the reference structure (three jobs with native severity flags)
+- ✅ Submission includes a direct link to a workflow run where all scans completed and all three artifact sets were uploaded
+- ✅ Checkov job steps explained accurately (`--soft-fail`, `--hard-fail-on CRITICAL,HIGH`, `if: always()` upload, triggers)
+- ✅ KICS job steps explained accurately (Docker invocation, `--fail-on critical,high`, separate artifacts)
 - ✅ Reflection addresses how CI complements local Lab 6.1 / Task 3 scans
 
 ---
@@ -385,7 +391,7 @@ PR checklist body:
 | Task | Points | Criteria |
 |------|-------:|----------|
 | **Task 3** — KICS | **4** | Ansible + Pulumi scans + Checkov-vs-KICS comparison with concrete examples |
-| **Task 4** — IaC CI workflow | **4** | Workflow committed + green run URL (all jobs) + step explanations + reflection |
+| **Task 4** — IaC CI workflow | **4** | Workflow committed + run URL with artifacts + native flag explanations + reflection |
 | **Total** | **8** | |
 
 ---

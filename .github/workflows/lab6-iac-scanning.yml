@@ -40,7 +40,8 @@ jobs:
           checkov -d labs/lab6/vulnerable-iac/terraform \
             --output cli --output json \
             --output-file-path "${RESULTS_DIR}/checkov-terraform/" \
-            --soft-fail
+            --soft-fail \
+            --hard-fail-on CRITICAL,HIGH
 
       - name: Upload Checkov reports
         if: always()
@@ -71,7 +72,7 @@ jobs:
             scan -p /path/vulnerable-iac/ansible/ \
                  -o /path/results/kics-ansible/ \
                  --report-formats json,sarif \
-                 --fail-on none
+                 --fail-on critical,high
 
       - name: Upload KICS Ansible reports
         if: always()
@@ -102,7 +103,7 @@ jobs:
             scan -p /path/vulnerable-iac/pulumi/ \
                  -o /path/results/kics-pulumi/ \
                  --report-formats json,sarif \
-                 --fail-on none
+                 --fail-on critical,high
 
       - name: Upload KICS Pulumi reports
         if: always()
