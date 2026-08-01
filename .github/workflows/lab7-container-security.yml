@@ -1,0 +1,108 @@
+name: lab7-Container Security
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: bkimminich/juice-shop:v20.0.0
+  RESULTS_DIR: labs/lab7/results
+
+jobs:
+  trivy-image:
+    name: Trivy — Image Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create results directory
+        run: mkdir -p "${RESULTS_DIR}"
+
+      - name: Run Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          format: json
+          output: ${{ env.RESULTS_DIR }}/trivy-image.json
+          exit-code: "0"
+
+      - name: Upload Trivy image report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab7-trivy-image-report
+          path: ${{ env.RESULTS_DIR }}/trivy-image.json
+          retention-days: 30
+
+  trivy-config:
+    name: Trivy — K8s Manifest Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create results directory
+        run: mkdir -p "${RESULTS_DIR}"
+
+      - name: Verify K8s manifests exist
+        run: test -d labs/lab7/k8s
+
+      - name: Run Trivy config scan on K8s manifests
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: labs/lab7/k8s
+          severity: HIGH,CRITICAL
+          format: json
+          output: ${{ env.RESULTS_DIR }}/trivy-config.json
+          exit-code: "0"
+
+      - name: Upload Trivy config report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab7-trivy-config-report
+          path: ${{ env.RESULTS_DIR }}/trivy-config.json
+          retention-days: 30
+
+  conftest:
+    name: Conftest — Pod Hardening Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Conftest
+        run: |
+          CONFTEST_VERSION="0.68.0"
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+            | tar xz -C /tmp conftest
+          sudo mv /tmp/conftest /usr/local/bin/conftest
+          conftest --version
+
+      - name: Verify policy and manifest exist
+        run: |
+          test -f labs/lab7/policies/pod-hardening.rego
+          test -f labs/lab7/k8s/deployment.yaml
+
+      - name: Run Conftest pod hardening policy
+        run: |
+          conftest test labs/lab7/k8s/deployment.yaml \
+            --policy labs/lab7/policies \
+            --output stdout
