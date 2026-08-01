@@ -128,6 +128,7 @@ jobs:
       - name: Run ZAP authenticated scan
         run: |
           docker run --rm --network "${DOCKER_NETWORK}" \
+            --user root \
             -e _JAVA_OPTIONS="-Xmx512m" \
             -v "${{ github.workspace }}/labs/lab5:/zap/wrk" \
             "${ZAP_IMAGE}" \
