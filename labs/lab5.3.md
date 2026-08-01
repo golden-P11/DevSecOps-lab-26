@@ -68,7 +68,7 @@ nano .github/workflows/lab5-sast-dast.yml
 Paste the following content (matches the [course reference workflow](../.github/workflows/lab5-sast-dast.yml)):
 
 ```yaml
-name: Lab 5 - SAST and DAST
+name: SAST and DAST
 
 on:
   pull_request:
@@ -119,23 +119,21 @@ jobs:
 
       - name: Run Semgrep (JSON report)
         run: |
-          semgrep \
+          semgrep scan \
             --config=p/owasp-top-ten \
             --config=p/javascript \
             --config=p/secrets \
             labs/lab5/semgrep/juice-shop \
             --json -o "${RESULTS_DIR}/semgrep.json" \
-            --severity ERROR --severity WARNING \
-            --no-error-on-findings
+            --severity ERROR --severity WARNING
 
       - name: Run Semgrep (human-readable summary)
         run: |
-          semgrep \
+          semgrep scan \
             --config=p/owasp-top-ten \
             --config=p/javascript \
             labs/lab5/semgrep/juice-shop \
-            --severity ERROR \
-            --no-error-on-findings | tee "${RESULTS_DIR}/semgrep.txt"
+            --severity ERROR | tee "${RESULTS_DIR}/semgrep.txt"
 
       - name: Upload SAST reports
         if: always()
@@ -171,7 +169,7 @@ jobs:
       - name: Wait for Juice Shop to be ready
         run: |
           for i in $(seq 1 60); do
-            if curl -sf -o /dev/null http://127.0.0.1:3000/rest/products; then
+            if curl -sf -o /dev/null http://127.0.0.1:3000/rest/admin/application-version; then
               echo "Juice Shop ready"
               exit 0
             fi
@@ -200,6 +198,7 @@ jobs:
       - name: Run ZAP authenticated scan
         run: |
           docker run --rm --network "${DOCKER_NETWORK}" \
+            --user root \
             -e _JAVA_OPTIONS="-Xmx512m" \
             -v "${{ github.workspace }}/labs/lab5:/zap/wrk" \
             "${ZAP_IMAGE}" \
