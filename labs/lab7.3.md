@@ -206,7 +206,6 @@ jobs:
     name: Trivy — K8s Manifest Scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: hashFiles('labs/lab7/k8s/**') != ''
 
     steps:
       - name: Checkout repository
@@ -238,7 +237,6 @@ jobs:
     name: Conftest — Pod Hardening Gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: hashFiles('labs/lab7/policies/pod-hardening.rego', 'labs/lab7/k8s/deployment.yaml') != ''
 
     steps:
       - name: Checkout repository
