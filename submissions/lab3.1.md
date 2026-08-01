@@ -20,3 +20,45 @@ commit cdc769aad3d98cd2fb0d6a0796ebc6eac3a99780 (HEAD -> feature/lab3.1, origin/
 
 ### One-paragraph reflection (2-3 sentences)
 What STRIDE-R (Repudiation) scenario would a forged-author commit enable in a real team's codebase? How does the Verified badge make that attack visible?
+
+## Task 2: Pre-commit + gitleaks
+
+### `.pre-commit-config.yaml` (paste the full content)
+```
+pre-commit install output: pre-commit installed at .git/hooks/pre-commit
+The blocked commit
+Output of the git commit that gitleaks blocked (the failing hook output):
+
+[
+ {
+  "RuleID": "github-pat",
+  "Description": "Uncovered a GitHub Personal Access Token, potentially leading to unauthorized repository access and sensitive content exposure.",
+  "StartLine": 1,
+  "EndLine": 1,
+  "File": "submissions/leak-attempt.txt",
+  "SymlinkFile": "",
+  "Commit": "",
+  "Entropy": 4.143943,
+  "Author": "",
+  "Email": "",
+  "Date": "",
+  "Message": "",
+  "Tags": [],
+  "Fingerprint": "submissions/leak-attempt.txt:github-pat:1"
+ }
+]
+
+---
+
+## How to Submit
+
+```bash
+git add .pre-commit-config.yaml          # Task 2
+git add submissions/lab3.1.md
+git commit -m "feat(lab3.1): SSH signing + gitleaks pre-commit"
+# This commit must be signed — verify with: git log --show-signature -1
+git push -u origin feature/lab3.1
+PR checklist body:
+
+- [x] Task 1 — SSH signing configured + Verified badge on commit
+- [x] Task 2 — .pre-commit-config.yaml + gitleaks demonstrably blocking
