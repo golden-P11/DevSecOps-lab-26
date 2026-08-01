@@ -1,0 +1,114 @@
+name: IaC Scanning
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RESULTS_DIR: labs/lab6/results
+  KICS_IMAGE: checkmarx/kics:latest
+
+jobs:
+  checkov:
+    name: Checkov — Terraform
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create results directory
+        run: mkdir -p "${RESULTS_DIR}/checkov-terraform"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Run Checkov on Terraform
+        run: |
+          checkov -d labs/lab6/vulnerable-iac/terraform \
+            --output cli --output json \
+            --output-file-path "${RESULTS_DIR}/checkov-terraform/" \
+            --soft-fail
+
+      - name: Upload Checkov reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab6-checkov-reports
+          path: |
+            ${{ env.RESULTS_DIR }}/checkov-terraform/
+          retention-days: 30
+
+  kics-ansible:
+    name: KICS — Ansible
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create results directory
+        run: mkdir -p "${RESULTS_DIR}/kics-ansible"
+
+      - name: Run KICS on Ansible
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/labs/lab6:/path" \
+            "${KICS_IMAGE}" \
+            scan -p /path/vulnerable-iac/ansible/ \
+                 -o /path/results/kics-ansible/ \
+                 --report-formats json,sarif \
+                 --fail-on none
+
+      - name: Upload KICS Ansible reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab6-kics-ansible-reports
+          path: |
+            ${{ env.RESULTS_DIR }}/kics-ansible/
+          retention-days: 30
+
+  kics-pulumi:
+    name: KICS — Pulumi
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create results directory
+        run: mkdir -p "${RESULTS_DIR}/kics-pulumi"
+
+      - name: Run KICS on Pulumi
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/labs/lab6:/path" \
+            "${KICS_IMAGE}" \
+            scan -p /path/vulnerable-iac/pulumi/ \
+                 -o /path/results/kics-pulumi/ \
+                 --report-formats json,sarif \
+                 --fail-on none
+
+      - name: Upload KICS Pulumi reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab6-kics-pulumi-reports
+          path: |
+            ${{ env.RESULTS_DIR }}/kics-pulumi/
+          retention-days: 30
