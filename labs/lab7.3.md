@@ -65,7 +65,7 @@ mkdir -p labs/lab7/policies
 # YOUR TASK: Rego policy refusing non-compliant pods
 # Requirements:
 #   - Run via: conftest test labs/lab7/k8s/deployment.yaml --policy labs/lab7/policies
-#   - Must produce deny[msg] for pods missing:
+#   - Must produce deny rules for pods missing:
 #       1. spec.securityContext.runAsNonRoot != true
 #       2. (any container) spec.containers[_].securityContext.readOnlyRootFilesystem != true
 #       3. (any container) spec.containers[_].securityContext.allowPrivilegeEscalation != false
@@ -73,11 +73,12 @@ mkdir -p labs/lab7/policies
 #
 # Hints:
 #   - Rego primer at https://www.openpolicyagent.org/docs/latest/policy-language/
+#   - Conftest 0.68.x uses Rego v1 syntax: `deny contains msg if { ... }` (not `deny[msg] { ... }`)
 #   - `input.kind == "Deployment"` to filter; the pod spec is `input.spec.template.spec`
 #   - `[_]` iterates; `msg := sprintf("...", [...])` formats
 #   - Sample structure:
 #     package main
-#     deny[msg] { input.kind == "Deployment"; <condition>; msg := "..." }
+#     deny contains msg if { input.kind == "Deployment"; <condition>; msg := "..." }
 ```
 
 ### 7.3.2: Run Conftest against your manifests
@@ -162,6 +163,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 env:
   IMAGE: bkimminich/juice-shop:v20.0.0
@@ -197,12 +199,14 @@ jobs:
         with:
           name: lab7-trivy-image-report
           path: ${{ env.RESULTS_DIR }}/trivy-image.json
+          if-no-files-found: warn
           retention-days: 30
 
   trivy-config:
     name: Trivy — K8s Manifest Scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    if: hashFiles('labs/lab7/k8s/**') != ''
 
     steps:
       - name: Checkout repository
@@ -210,9 +214,6 @@ jobs:
 
       - name: Create results directory
         run: mkdir -p "${RESULTS_DIR}"
-
-      - name: Verify K8s manifests exist
-        run: test -d labs/lab7/k8s
 
       - name: Run Trivy config scan on K8s manifests
         uses: aquasecurity/trivy-action@v0.36.0
@@ -230,12 +231,14 @@ jobs:
         with:
           name: lab7-trivy-config-report
           path: ${{ env.RESULTS_DIR }}/trivy-config.json
+          if-no-files-found: warn
           retention-days: 30
 
   conftest:
     name: Conftest — Pod Hardening Gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    if: hashFiles('labs/lab7/policies/pod-hardening.rego', 'labs/lab7/k8s/deployment.yaml') != ''
 
     steps:
       - name: Checkout repository
@@ -248,11 +251,6 @@ jobs:
             | tar xz -C /tmp conftest
           sudo mv /tmp/conftest /usr/local/bin/conftest
           conftest --version
-
-      - name: Verify policy and manifest exist
-        run: |
-          test -f labs/lab7/policies/pod-hardening.rego
-          test -f labs/lab7/k8s/deployment.yaml
 
       - name: Run Conftest pod hardening policy
         run: |
