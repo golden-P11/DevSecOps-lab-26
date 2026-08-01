@@ -1,4 +1,4 @@
-name: IaC Scanning
+name: IaC_Scanning
 
 on:
   pull_request:

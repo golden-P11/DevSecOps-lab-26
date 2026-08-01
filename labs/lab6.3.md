@@ -1,4 +1,4 @@
-# Lab 6.3 — KICS + IaC Scanning CI Pipeline
+# Lab 6.3 — KICS + IaC_Scanning CI Pipeline
 
 ![difficulty](https://img.shields.io/badge/difficulty-intermediate-yellow)
 ![topic](https://img.shields.io/badge/topic-IaC%20Security-blue)
