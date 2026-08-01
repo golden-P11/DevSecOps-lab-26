@@ -8,7 +8,7 @@
 > **Goal:** Run SAST with **Semgrep** against OWASP Juice Shop v20.0.0 source code, analyze severity breakdown and top findings, and triage one false positive.
 > **Deliverable:** A PR from `feature/lab5-1` with `submissions/lab5-1.md` (Semgrep analysis). Submit PR link via Moodle.
 
-> **Part of Lab 5:** This is the SAST half of Lab 5. Complete **Lab 5.2 (DAST)** separately; the optional correlation bonus lives there and requires Semgrep output from this lab.
+> **Part of Lab 5:** This is the SAST half of Lab 5. Complete **Lab 5.2 (DAST)** separately; the optional correlation bonus lives there and requires Semgrep output from this lab. **Lab 5.3** automates both scans in GitHub Actions.
 
 ---
 

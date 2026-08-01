@@ -8,7 +8,7 @@
 > **Goal:** Run DAST with **OWASP ZAP** against the running Juice Shop — both unauthenticated (baseline) and authenticated (full) scans — and analyze the gap between them.
 > **Deliverable:** A PR from `feature/lab5-2` with `submissions/lab5-2.md` (ZAP analysis; optional correlation if you completed Lab 5.1). Submit PR link via Moodle.
 
-> **Part of Lab 5:** This is the DAST half of Lab 5. Complete **Lab 5.1 (SAST)** first if you want to attempt the correlation bonus.
+> **Part of Lab 5:** This is the DAST half of Lab 5. Complete **Lab 5.1 (SAST)** first if you want to attempt the correlation bonus. **Lab 5.3** automates both scans in GitHub Actions.
 
 ---
 
@@ -260,6 +260,6 @@ PR checklist body:
 | **Bonus Task** — Correlation | **2** | ≥1 confirmed correlated finding with code + payload + fix (requires Lab 5.1) |
 | **Total** | **8** | 6 main + 2 bonus |
 
-> Combined with **Lab 5.1 (4 pts)**, the full Lab 5 series totals **12 points**.
+> Combined with **Lab 5.1 (4 pts)** and **Lab 5.3 (4 pts)**, the full Lab 5 series totals **16 points**.
 
 ---

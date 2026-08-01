@@ -43,6 +43,13 @@ jobs:
             --soft-fail \
             --hard-fail-on CRITICAL,HIGH
 
+      - name: Generate human-readable summary
+        if: always()
+        run: |
+          bash labs/lab6/scripts/summarize_iac_report.sh checkov \
+            "${RESULTS_DIR}/checkov-terraform/results_json.json" \
+            "${RESULTS_DIR}/checkov-terraform/summary.txt"
+
       - name: Upload Checkov reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -74,6 +81,13 @@ jobs:
                  --report-formats json,sarif \
                  --fail-on critical,high
 
+      - name: Generate human-readable summary
+        if: always()
+        run: |
+          bash labs/lab6/scripts/summarize_iac_report.sh kics \
+            "${RESULTS_DIR}/kics-ansible/results.json" \
+            "${RESULTS_DIR}/kics-ansible/summary.txt"
+
       - name: Upload KICS Ansible reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -104,6 +118,13 @@ jobs:
                  -o /path/results/kics-pulumi/ \
                  --report-formats json,sarif \
                  --fail-on critical,high
+
+      - name: Generate human-readable summary
+        if: always()
+        run: |
+          bash labs/lab6/scripts/summarize_iac_report.sh kics \
+            "${RESULTS_DIR}/kics-pulumi/results.json" \
+            "${RESULTS_DIR}/kics-pulumi/summary.txt"
 
       - name: Upload KICS Pulumi reports
         if: always()
