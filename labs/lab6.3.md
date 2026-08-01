@@ -201,6 +201,8 @@ jobs:
         run: pip install checkov
 
       - name: Run Checkov on Terraform
+        id: checkov-scan
+        continue-on-error: true
         run: |
           checkov -d labs/lab6/vulnerable-iac/terraform \
             --output cli --output json \
@@ -217,6 +219,10 @@ jobs:
             ${{ env.RESULTS_DIR }}/checkov-terraform/
           retention-days: 30
 
+      - name: Fail on Checkov CRITICAL/HIGH findings
+        if: steps.checkov-scan.outcome == 'failure'
+        run: exit 1
+
   kics-ansible:
     name: KICS — Ansible
     runs-on: ubuntu-latest
@@ -230,6 +236,8 @@ jobs:
         run: mkdir -p "${RESULTS_DIR}/kics-ansible"
 
       - name: Run KICS on Ansible
+        id: kics-ansible-scan
+        continue-on-error: true
         run: |
           docker run --rm \
             -v "${{ github.workspace }}/labs/lab6:/path" \
@@ -248,6 +256,10 @@ jobs:
             ${{ env.RESULTS_DIR }}/kics-ansible/
           retention-days: 30
 
+      - name: Fail on KICS CRITICAL/HIGH findings
+        if: steps.kics-ansible-scan.outcome == 'failure'
+        run: exit 1
+
   kics-pulumi:
     name: KICS — Pulumi
     runs-on: ubuntu-latest
@@ -261,6 +273,8 @@ jobs:
         run: mkdir -p "${RESULTS_DIR}/kics-pulumi"
 
       - name: Run KICS on Pulumi
+        id: kics-pulumi-scan
+        continue-on-error: true
         run: |
           docker run --rm \
             -v "${{ github.workspace }}/labs/lab6:/path" \
@@ -278,6 +292,10 @@ jobs:
           path: |
             ${{ env.RESULTS_DIR }}/kics-pulumi/
           retention-days: 30
+
+      - name: Fail on KICS CRITICAL/HIGH findings
+        if: steps.kics-pulumi-scan.outcome == 'failure'
+        run: exit 1
 ```
 
 Commit and push:

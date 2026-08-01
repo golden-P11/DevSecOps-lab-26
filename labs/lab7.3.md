@@ -183,6 +183,8 @@ jobs:
         run: mkdir -p "${RESULTS_DIR}"
 
       - name: Run Trivy image scan
+        id: trivy-image-scan
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
@@ -202,6 +204,10 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      - name: Fail on Trivy image scan error
+        if: steps.trivy-image-scan.outcome == 'failure'
+        run: exit 1
+
   trivy-config:
     name: Trivy — K8s Manifest Scan
     runs-on: ubuntu-latest
@@ -215,6 +221,8 @@ jobs:
         run: mkdir -p "${RESULTS_DIR}"
 
       - name: Run Trivy config scan on K8s manifests
+        id: trivy-config-scan
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
@@ -233,6 +241,10 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      - name: Fail on Trivy config scan error
+        if: steps.trivy-config-scan.outcome == 'failure'
+        run: exit 1
+
   conftest:
     name: Conftest — Pod Hardening Gate
     runs-on: ubuntu-latest
@@ -241,6 +253,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Create results directory
+        run: mkdir -p "${RESULTS_DIR}"
 
       - name: Install Conftest
         run: |
@@ -251,10 +266,33 @@ jobs:
           conftest --version
 
       - name: Run Conftest pod hardening policy
+        id: conftest-scan
+        continue-on-error: true
         run: |
           conftest test labs/lab7/k8s/deployment.yaml \
             --policy labs/lab7/policies \
-            --output stdout
+            --output json \
+            > "${RESULTS_DIR}/conftest.json" 2> "${RESULTS_DIR}/conftest.stderr"
+          conftest test labs/lab7/k8s/deployment.yaml \
+            --policy labs/lab7/policies \
+            --output stdout \
+            | tee "${RESULTS_DIR}/conftest.txt"
+
+      - name: Upload Conftest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab7-conftest-report
+          path: |
+            ${{ env.RESULTS_DIR }}/conftest.json
+            ${{ env.RESULTS_DIR }}/conftest.txt
+            ${{ env.RESULTS_DIR }}/conftest.stderr
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Fail on Conftest policy violations
+        if: steps.conftest-scan.outcome == 'failure'
+        run: exit 1
 ```
 
 Commit and push:
@@ -319,8 +357,8 @@ How does `scan-type: config` differ from the `k8s` mode you ran locally in Lab 7
 ### Job: `conftest` — step explanation
 Explain the purpose of each step (2-3 sentences each):
 
-#### Step: Run Conftest pod hardening policy
-Why is this job the **hard gate** (no soft-fail) while Trivy jobs are informational?
+#### Step: Upload Conftest report
+What files are uploaded when Conftest **fails**, and why use `continue-on-error` + `if: always()` instead of a plain upload step?
 
 ### One-paragraph reflection (2-3 sentences)
 How does this CI pipeline complement the local Trivy and Conftest runs from Lab 7.1, Lab 7.2, and the Bonus task?
@@ -349,7 +387,7 @@ PR checklist body:
 ```text
 - [ ] Bonus — Conftest policy passing on hardened + failing on bad manifest
 - [ ] Task 3 — lab7-container-security.yml committed
-- [ ] lab7-Container Security workflow: all three jobs green + artifacts uploaded
+- [ ] lab7-Container Security workflow: all three jobs green + artifacts uploaded (including `lab7-conftest-report` on policy failure)
 - [ ] Submission includes green workflow run URL + job step explanations + CI vs local reflection
 ```
 
