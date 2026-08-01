@@ -1,0 +1,163 @@
+name: Lab 5 - SAST and DAST
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: bkimminich/juice-shop:v20.0.0
+  JUICE_SHOP_TAG: v20.0.0
+  ZAP_IMAGE: ghcr.io/zaproxy/zaproxy:stable
+  RESULTS_DIR: labs/lab5/results
+  DOCKER_NETWORK: lab5-net
+
+jobs:
+  sast:
+    name: SAST — Semgrep
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create results directory
+        run: mkdir -p "${RESULTS_DIR}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Clone Juice Shop source (pinned to v20.0.0)
+        run: |
+          git clone --depth 1 \
+            https://github.com/juice-shop/juice-shop.git \
+            labs/lab5/semgrep/juice-shop
+          cd labs/lab5/semgrep/juice-shop
+          git fetch --depth 1 origin tag "${JUICE_SHOP_TAG}" || true
+          git checkout "${JUICE_SHOP_TAG}"
+
+      - name: Run Semgrep (JSON report)
+        run: |
+          semgrep \
+            --config=p/owasp-top-ten \
+            --config=p/javascript \
+            --config=p/secrets \
+            labs/lab5/semgrep/juice-shop \
+            --json -o "${RESULTS_DIR}/semgrep.json" \
+            --severity ERROR --severity WARNING \
+            --no-error-on-findings
+
+      - name: Run Semgrep (human-readable summary)
+        run: |
+          semgrep \
+            --config=p/owasp-top-ten \
+            --config=p/javascript \
+            labs/lab5/semgrep/juice-shop \
+            --severity ERROR \
+            --no-error-on-findings | tee "${RESULTS_DIR}/semgrep.txt"
+
+      - name: Upload SAST reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab5-sast-reports
+          path: |
+            ${{ env.RESULTS_DIR }}/semgrep.json
+            ${{ env.RESULTS_DIR }}/semgrep.txt
+          retention-days: 30
+
+  dast:
+    name: DAST — OWASP ZAP
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create results directory
+        run: mkdir -p "${RESULTS_DIR}"
+
+      - name: Create Docker network
+        run: docker network create "${DOCKER_NETWORK}" 2>/dev/null || true
+
+      - name: Start Juice Shop
+        run: |
+          docker run -d --name juice-shop --network "${DOCKER_NETWORK}" \
+            -p 127.0.0.1:3000:3000 \
+            "${IMAGE}"
+
+      - name: Wait for Juice Shop to be ready
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://127.0.0.1:3000/rest/products; then
+              echo "Juice Shop ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Juice Shop failed to start"
+          docker logs juice-shop
+          exit 1
+
+      - name: Run ZAP baseline (unauthenticated) scan
+        run: |
+          set +e
+          docker run --rm --network "${DOCKER_NETWORK}" \
+            -v "${{ github.workspace }}/${RESULTS_DIR}:/zap/wrk" \
+            "${ZAP_IMAGE}" \
+            zap-baseline.py -t http://juice-shop:3000 \
+            -r baseline-report.html -J baseline-report.json
+          exit_code=$?
+          set -e
+          # Exit 2 = issues found (expected for Juice Shop); 1 = scan error
+          if [ "$exit_code" -ne 0 ] && [ "$exit_code" -ne 2 ]; then
+            exit "$exit_code"
+          fi
+          echo "ZAP baseline scan finished (exit code: ${exit_code})"
+
+      - name: Run ZAP authenticated scan
+        run: |
+          docker run --rm --network "${DOCKER_NETWORK}" \
+            -e _JAVA_OPTIONS="-Xmx512m" \
+            -v "${{ github.workspace }}/labs/lab5:/zap/wrk" \
+            "${ZAP_IMAGE}" \
+            zap.sh -cmd -autorun /zap/wrk/scripts/zap-auth.yaml -port 8090
+
+      - name: Compare baseline vs authenticated reports
+        run: |
+          bash labs/lab5/scripts/compare_zap.sh \
+            "${RESULTS_DIR}/baseline-report.json" \
+            "${RESULTS_DIR}/auth-report.json" \
+            "${RESULTS_DIR}/zap-comparison.txt"
+
+      - name: Stop Juice Shop
+        if: always()
+        run: |
+          docker stop juice-shop 2>/dev/null || true
+          docker rm juice-shop 2>/dev/null || true
+          docker network rm "${DOCKER_NETWORK}" 2>/dev/null || true
+
+      - name: Upload DAST reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab5-dast-reports
+          path: |
+            ${{ env.RESULTS_DIR }}/baseline-report.json
+            ${{ env.RESULTS_DIR }}/baseline-report.html
+            ${{ env.RESULTS_DIR }}/auth-report.json
+            ${{ env.RESULTS_DIR }}/auth-report.html
+            ${{ env.RESULTS_DIR }}/zap-comparison.txt
+          retention-days: 30
