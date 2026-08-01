@@ -61,7 +61,7 @@ git switch -c feature/lab1
 The course pins to **v20.0.0** (released May 2026, Node 24, ~125 MB image — Lecture 1 mentioned this is the leanest the image has been since v8).
 
 ```bash
-sudo docker run -d --name juice-shop \
+docker run -d --name juice-shop \
   -p 127.0.0.1:3000:3000 \
   bkimminich/juice-shop:v20.0.0
 ```
@@ -139,10 +139,6 @@ Which of these are MISSING? (cross-reference Lecture 1 OWASP Top 10:2025 — A06
 - [ ] `X-Content-Type-Options: nosniff`
 - [ ] `X-Frame-Options`
 
-### Top 3 Risks Observed (2-3 sentences each, in your own words)
-1. **<risk name>** — <why it matters; map to one OWASP Top 10:2025 category>
-2. **<risk name>** — <why; map to OWASP>
-3. **<risk name>** — <why; map to OWASP>
 ````
 
 ### 1.4: Cleanup (when done)
@@ -193,44 +189,6 @@ Add a section:
 - Checklist items: <list yours>
 - Auto-fill verified: [ ] Yes — PR description showed my template (screenshot or link to draft PR)
 ```
-
----
-
-## Task 3 — GitHub Community Engagement (1 pt)
-
-**Objective:** Explore GitHub's social features that support collaboration and discovery.
-
-**Actions Required:**
-1. **Star** the course repository
-2. **Star** the [simple-container-com/api](https://github.com/simple-container-com/api) project — a promising open-source tool for container management
-3. **Follow** your professor and TAs on GitHub:
-   - Professor: [@Cre-eD](https://github.com/Cre-eD)
-   - TA: [@Naghme98](https://github.com/Naghme98)
-   - TA: [@pierrepicaud](https://github.com/pierrepicaud)
-4. **Follow** at least 3 classmates from the course
-
-**Add to `submissions/lab1.md`:**
-
-A "GitHub Community" section with 1-2 sentences explaining:
-- Why starring repositories matters in open source
-- How following developers helps in team projects and professional growth
-
-<details>
-<summary>💡 GitHub Social Features</summary>
-
-**Why Stars Matter:**
-- Stars help you bookmark interesting projects for later reference
-- Star count indicates project popularity and community trust
-- Starred repos appear in your GitHub profile, showing your interests
-- Stars encourage maintainers and help projects gain visibility
-
-**Why Following Matters:**
-- See what other developers are working on
-- Discover new projects through their activity
-- Build professional connections beyond the classroom
-- Stay updated on classmates' work for future collaboration
-
-</details>
 
 ---
 
@@ -306,7 +264,6 @@ PR checklist (paste this into your PR body):
 ```text
 - [x] Task 1 done — Juice Shop deployed, triage report in submissions/lab1.md
 - [ ] Task 2 done — .github/PULL_REQUEST_TEMPLATE.md created
-- [ ] Task 3 done — GitHub stars + follows complete
 - [ ] Bonus done — lab1-smoke.yml runs green on this PR
 ```
 
@@ -327,11 +284,6 @@ PR checklist (paste this into your PR body):
 - ✅ Template includes a 3-item checklist
 - ✅ Auto-fill verified (PR description shows the template before any manual edits)
 
-### Task 3 (1 pt)
-- ✅ Starred course repo and simple-container-com/api
-- ✅ Following professor, TAs, and 3+ classmates
-- ✅ GitHub Community section in submission
-
 ### Bonus Task (2 pts)
 - ✅ `.github/workflows/lab1-smoke.yml` exists and triggers on `pull_request`
 - ✅ Workflow run is **green** on the submitted PR (run URL in submission)
@@ -346,52 +298,7 @@ PR checklist (paste this into your PR body):
 |------|-------:|----------|
 | **Task 1** — Deploy + Triage | **6** | Container running on localhost-only port + full triage report with real values + headers analysis + 3 risks mapped to OWASP Top 10:2025 |
 | **Task 2** — PR Template | **3** | All 4 sections + 3-item checklist + auto-fill working on a real PR |
-| **Task 3** — GitHub Community | **1** | Stars, follows, and written explanation |
 | **Bonus Task** — CI Smoke Test | **2** | Green workflow run on the submitted PR with proper permissions block and timeout-bounded healthcheck |
-| **Total** | **12** | 10 main + 2 bonus |
+| **Total** | **11** | 9 main + 2 bonus |
 
 ---
-
-## Resources
-
-<details>
-<summary>📚 Documentation</summary>
-
-- [OWASP Juice Shop](https://owasp.org/www-project-juice-shop/) — Official project page
-- [Pwning OWASP Juice Shop](https://pwning.owasp-juice.shop/) — The companion book (free, online)
-- [Juice Shop v20.0.0 release notes](https://owasp.org/blog/2026/05/13/juice-shop-v20) — What's new
-- [GitHub PR Template docs](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository) — File-location conventions
-- [GitHub Actions services block](https://docs.github.com/en/actions/using-jobs/running-jobs-in-a-container) — For the bonus
-- [OWASP Top 10:2025](https://owasp.org/Top10/2025/) — Use this to map your top-3 risks
-
-</details>
-
-<details>
-<summary>⚠️ Common Pitfalls</summary>
-
-- 🚨 **`-p 3000:3000` exposes Juice Shop on every interface**, including your office WiFi. **Always** use `-p 127.0.0.1:3000:3000` for any deliberately-vulnerable app. Use `docker network inspect bridge` to verify.
-- 🚨 **`docker ps` shows nothing** — the container exited. Check `docker logs juice-shop` for the actual error. Most common: another process on port 3000 (run `lsof -i :3000` or `ss -ltnp | grep 3000`).
-- 🚨 **`/rest/products` returns 404 in v20.0.0** — Juice Shop's API moved. Use `/api/Products` (capital P, returns `{data: [...]}` envelope) for product listing. Use `/rest/admin/application-version` for a simple JSON health check.
-- 🚨 **API returns empty/502 instead of JSON** — Juice Shop takes ~20s to fully start on a cold image. Wait, then re-curl.
-- 🚨 **PR template doesn't auto-fill** — file must be exactly `.github/PULL_REQUEST_TEMPLATE.md` (capital + singular). Variants like `.github/PR_TEMPLATE.md` or `.github/pull_request_template.md` (lowercase) work too — but be consistent in your fork.
-- 🚨 **Bonus workflow times out** — Juice Shop v20.0.0 needs ~20-30s in CI. Don't set your loop to 10s and quit.
-- 🚨 **Bonus workflow uses `pull_request_target` instead of `pull_request`** — Lecture 4 covers why that's a critical-class PPE bug. For this lab: use `pull_request`, period.
-- 🚨 **Forgetting to set the workflow's `permissions:` block** — defaults are write on many older repos. Explicitly set `contents: read` at workflow level.
-- 💡 **Image digest:** `docker inspect juice-shop --format '{{.Image}}'` gives you the digest for the triage report. Pin to digest in real production work (Lecture 4 — SHA-pinning for actions, same principle for images).
-
-</details>
-
-<details>
-<summary>🪜 Looking ahead</summary>
-
-Juice Shop will be the target throughout the course. Future labs that re-use what you set up here:
-- **Lab 3** (Secure Git) — sign your `feature/labN` commits
-- **Lab 4** (SBOM/SCA) — generate an SBOM of the v20.0.0 image you ran today
-- **Lab 5** (SAST/DAST) — scan Juice Shop source + run ZAP against the running container
-- **Lab 7** (Container Security) — Trivy scan + Docker Bench on the same image
-- **Lab 8** (Supply Chain) — rebuild + sign your own version with Cosign
-- **Lab 10** (Vuln Management) — import every prior lab's findings on Juice Shop into DefectDojo
-
-Get the deployment right today; it pays for the entire semester.
-
-</details>
