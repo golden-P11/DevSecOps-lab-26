@@ -38,8 +38,31 @@ Reference workflow: [`.github/workflows/lab7-container-security.yml`](../.github
 ## Setup
 
 You need:
-- **`conftest`** v0.68.x — `brew install conftest` (only needed for local testing)
+- **`conftest`** v0.68.x — for local policy testing before push (see below)
 - A fork of the course repo with **Actions enabled** (GitHub → Settings → Actions → General → Allow all actions)
+
+### Install conftest
+
+This lab uses **Conftest v0.68.x** (Rego v1 syntax). Install locally to test your policy against `labs/lab7/k8s/deployment.yaml` before opening a PR. CI installs the same version on the runner — local install is optional but recommended.
+
+#### Ubuntu / WSL
+
+```bash
+CONFTEST_VERSION="0.68.0"
+curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+  | tar xz -C /tmp conftest
+sudo mv /tmp/conftest /usr/local/bin/conftest
+conftest --version
+```
+
+#### Homebrew (macOS or Linux with brew)
+
+```bash
+brew install conftest
+conftest --version
+```
+
+> Pin to v0.68.x if brew installs a newer release: download the binary from [Conftest releases](https://github.com/open-policy-agent/conftest/releases/tag/v0.68.0) instead.
 
 ```bash
 git switch main && git pull

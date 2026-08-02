@@ -8,7 +8,7 @@
 > **Goal:** Write Rego policies for Conftest that catch ≥3 K8s manifest hardening issues at CI time, then run the shipped compose policy to see the same `deny[msg]` skill generalize to a second target shape.
 > **Deliverable:** A PR from `feature/lab9.2` with `labs/lab9/policies/extra/hardening.rego` and `submissions/lab9.2.md`. Submit PR link via Moodle.
 
-> **Part of Lab 9:** This is the Conftest half of Lab 9. Complete **[Lab 9.1](lab9.1.md)** (Falco runtime) and **[Lab 9.3](lab9.3.md)** (cryptominer bonus + CI) separately.
+> **Part of Lab 9:** This is the Conftest half of Lab 9. Complete **[Lab 9.1](lab9.1.md)** (Falco runtime) and **[Lab 9.3](lab9.3.md)** (cryptominer bonus) separately.
 
 > ⏭️ Optional. Skipping won't affect future labs.
 
