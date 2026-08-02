@@ -40,9 +40,51 @@ In this lab you will practice:
 
 You need:
 - **Docker**
-- **Trivy v0.69.x**
-- **`kubectl`** + **`kind`** or **`k3d`** — for a local Kubernetes cluster
+- **Trivy v0.69.x** — `brew install trivy` or [GitHub releases](https://github.com/aquasecurity/trivy/releases)
+- **`kubectl`** + **`kind`** — for a local Kubernetes cluster (see below)
 - **`jq`**
+
+### Install kubectl + kind (local K8s)
+
+This lab uses **kind** with Kubernetes **v1.33.0**. Install a matching `kubectl` client and the `kind` CLI before creating the cluster.
+
+#### kubectl
+
+**Ubuntu / WSL** (pin to v1.33.x to match the cluster image):
+
+```bash
+curl -LO "https://dl.k8s.io/release/v1.33.0/bin/linux/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
+kubectl version --client
+```
+
+**Homebrew** (macOS or Linux with brew):
+
+```bash
+brew install kubectl
+kubectl version --client
+```
+
+#### kind
+
+**Ubuntu / WSL**:
+
+```bash
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-amd64
+chmod +x ./kind
+sudo mv ./kind /usr/local/bin/kind
+kind version
+```
+
+**Homebrew**:
+
+```bash
+brew install kind
+kind version
+```
+
+> **Alternative:** [k3d](https://k3d.io/) works too — swap `kind create cluster ...` below for `k3d cluster create lab7 --image rancher/k3s:v1.33.0-k3s1`.
 
 ```bash
 git switch main && git pull

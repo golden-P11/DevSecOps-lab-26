@@ -8,7 +8,7 @@
 > **Goal:** Run Falco with modern eBPF, trigger baseline + custom alerts, and document tuning considerations for your custom rule.
 > **Deliverable:** A PR from `feature/lab9.1` with `labs/lab9/falco/rules/custom-rules.yaml` and `submissions/lab9.1.md`. Submit PR link via Moodle.
 
-> **Part of Lab 9:** This is the Falco runtime half of Lab 9. Complete **[Lab 9.2](lab9.2.md)** (Conftest Policy-as-Code) and **[Lab 9.3](lab9.3.md)** (cryptominer bonus + CI) separately.
+> **Part of Lab 9:** This is the Falco runtime half of Lab 9. Complete **[Lab 9.2](lab9.2.md)** (Conftest Policy-as-Code) and **[Lab 9.3](lab9.3.md)** (cryptominer bonus) separately.
 
 ---
 
