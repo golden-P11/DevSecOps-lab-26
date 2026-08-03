@@ -28,7 +28,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Create results directory
-        run: mkdir -p "${RESULTS_DIR}"
+        run: |
+          mkdir -p "${RESULTS_DIR}"
+          chmod 777 "${RESULTS_DIR}"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -58,7 +60,7 @@ jobs:
             labs/lab5/semgrep/juice-shop \
             --json -o "${RESULTS_DIR}/semgrep.json" \
             --severity ERROR --severity WARNING \
-            --no-error-on-findings
+            --no-error
 
       - name: Run Semgrep (human-readable summary)
         id: semgrep-txt
@@ -69,7 +71,7 @@ jobs:
             --config=p/javascript \
             labs/lab5/semgrep/juice-shop \
             --severity ERROR \
-            --no-error-on-findings | tee "${RESULTS_DIR}/semgrep.txt"
+            --no-error | tee "${RESULTS_DIR}/semgrep.txt"
 
       - name: Upload SAST reports
         if: always()
@@ -83,12 +85,12 @@ jobs:
           retention-days: 30
 
       - name: Fail on Semgrep scan error
-        if: |
-          steps.semgrep-json.outcome == 'failure' ||
-          steps.semgrep-txt.outcome == 'failure'
         run: |
-          echo "Semgrep scan failed (report not produced)."
-          exit 1
+          if [ ! -s "${RESULTS_DIR}/semgrep.json" ]; then
+            echo "Semgrep scan failed: ${RESULTS_DIR}/semgrep.json was not produced."
+            exit 1
+          fi
+          echo "Semgrep JSON report ready."
 
       - name: SAST security gate
         run: |
@@ -105,7 +107,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Create results directory
-        run: mkdir -p "${RESULTS_DIR}"
+        run: |
+          mkdir -p "${RESULTS_DIR}"
+          chmod 777 "${RESULTS_DIR}"
 
       - name: Create Docker network
         run: docker network create "${DOCKER_NETWORK}" 2>/dev/null || true
@@ -135,7 +139,9 @@ jobs:
         run: |
           set +e
           docker run --rm --network "${DOCKER_NETWORK}" \
+            --user root \
             -v "${{ github.workspace }}/${RESULTS_DIR}:/zap/wrk" \
+            -w /zap/wrk \
             "${ZAP_IMAGE}" \
             zap-baseline.py -t http://juice-shop:3000 \
             -r baseline-report.html -J baseline-report.json
@@ -144,7 +150,12 @@ jobs:
           echo "${exit_code}" > "${RESULTS_DIR}/zap-baseline.exit"
           # Exit 2 = issues found (expected for Juice Shop); 1 = scan error
           if [ "$exit_code" -ne 0 ] && [ "$exit_code" -ne 2 ]; then
+            echo "ZAP baseline scan failed with exit code: ${exit_code}"
             exit "$exit_code"
+          fi
+          if [ ! -s "${RESULTS_DIR}/baseline-report.json" ]; then
+            echo "ZAP baseline scan finished (exit ${exit_code}) but baseline-report.json was not created."
+            exit 1
           fi
           echo "ZAP baseline scan finished (exit code: ${exit_code})"
 
@@ -158,6 +169,11 @@ jobs:
             -v "${{ github.workspace }}/labs/lab5:/zap/wrk" \
             "${ZAP_IMAGE}" \
             zap.sh -cmd -autorun /zap/wrk/scripts/zap-auth.yaml -port 8090
+          if [ ! -s "${RESULTS_DIR}/auth-report.json" ]; then
+            echo "ZAP authenticated scan finished but auth-report.json was not created."
+            exit 1
+          fi
+          echo "ZAP authenticated scan report ready."
 
       - name: Compare baseline vs authenticated reports
         id: zap-compare
@@ -191,13 +207,23 @@ jobs:
           retention-days: 30
 
       - name: Fail on ZAP scan error
-        if: |
-          steps.zap-baseline.outcome == 'failure' ||
-          steps.zap-auth.outcome == 'failure' ||
-          steps.zap-compare.outcome == 'failure'
         run: |
-          echo "ZAP scan or compare step failed (infrastructure error, not policy gate)."
-          exit 1
+          missing=0
+          for report in baseline-report.json auth-report.json; do
+            if [ ! -s "${RESULTS_DIR}/${report}" ]; then
+              echo "Missing or empty report: ${RESULTS_DIR}/${report}"
+              missing=1
+            fi
+          done
+          if [ "${missing}" -eq 1 ]; then
+            echo "ZAP scan failed (report not produced)."
+            exit 1
+          fi
+          if [ "${{ steps.zap-compare.outcome }}" = "failure" ]; then
+            echo "ZAP compare step failed."
+            exit 1
+          fi
+          echo "ZAP reports ready."
 
       - name: DAST security gate
         run: |
