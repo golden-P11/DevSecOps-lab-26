@@ -19,7 +19,7 @@ In this lab you will practice:
 - **Auth vs unauth gap analysis** — comparing alert counts and identifying auth-only findings
 - **Optional correlation** — matching ZAP alerts to Semgrep findings from Lab 5.1 (Lecture 5 slide 15: highest-confidence finding type)
 
-> Recall Lecture 5 slide 11: *authenticated DAST finds 10–20× more issues than unauth*. Don't skip the auth setup.
+> *authenticated DAST finds 10–20× more issues than unauth*. Don't skip the auth setup.
 
 ---
 
@@ -140,9 +140,8 @@ bash labs/lab5/scripts/compare_zap.sh \
 | Low | <n> |
 | Informational | <n> |
 
-### The "10–20× more" claim (Lecture 5 slide 11)
+### The "10–20× more" claim : authenticated DAST finds 10–20× more issues than unauth
 - Ratio (auth alerts / baseline alerts): <e.g., 18.5×>
-- Did your run match the lecture's ratio? (2-3 sentences)
 - Pick **two specific alerts** that only the authenticated scan found. For each:
   1. Alert title + severity
   2. Why was it unreachable to the unauthenticated scan? (1 sentence)

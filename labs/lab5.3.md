@@ -98,7 +98,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Create results directory
-        run: mkdir -p "${RESULTS_DIR}"
+        run: |
+          mkdir -p "${RESULTS_DIR}"
+          chmod 777 "${RESULTS_DIR}"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -118,6 +120,8 @@ jobs:
           git checkout "${JUICE_SHOP_TAG}"
 
       - name: Run Semgrep (JSON report)
+        id: semgrep-json
+        continue-on-error: true
         run: |
           semgrep scan \
             --config=p/owasp-top-ten \
@@ -125,15 +129,19 @@ jobs:
             --config=p/secrets \
             labs/lab5/semgrep/juice-shop \
             --json -o "${RESULTS_DIR}/semgrep.json" \
-            --severity ERROR --severity WARNING
+            --severity ERROR --severity WARNING \
+            --no-error
 
       - name: Run Semgrep (human-readable summary)
+        id: semgrep-txt
+        continue-on-error: true
         run: |
           semgrep scan \
             --config=p/owasp-top-ten \
             --config=p/javascript \
             labs/lab5/semgrep/juice-shop \
-            --severity ERROR | tee "${RESULTS_DIR}/semgrep.txt"
+            --severity ERROR \
+            --no-error | tee "${RESULTS_DIR}/semgrep.txt"
 
       - name: Upload SAST reports
         if: always()
@@ -143,7 +151,21 @@ jobs:
           path: |
             ${{ env.RESULTS_DIR }}/semgrep.json
             ${{ env.RESULTS_DIR }}/semgrep.txt
+          if-no-files-found: warn
           retention-days: 30
+
+      - name: Fail on Semgrep scan error
+        run: |
+          if [ ! -s "${RESULTS_DIR}/semgrep.json" ]; then
+            echo "Semgrep scan failed: ${RESULTS_DIR}/semgrep.json was not produced."
+            exit 1
+          fi
+          echo "Semgrep JSON report ready."
+
+      - name: SAST security gate
+        run: |
+          python3 labs/lab5/scripts/security_gate.py semgrep \
+            "${RESULTS_DIR}/semgrep.json"
 
   dast:
     name: DAST — OWASP ZAP
@@ -155,7 +177,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Create results directory
-        run: mkdir -p "${RESULTS_DIR}"
+        run: |
+          mkdir -p "${RESULTS_DIR}"
+          chmod 777 "${RESULTS_DIR}"
 
       - name: Create Docker network
         run: docker network create "${DOCKER_NETWORK}" 2>/dev/null || true
@@ -180,22 +204,34 @@ jobs:
           exit 1
 
       - name: Run ZAP baseline (unauthenticated) scan
+        id: zap-baseline
+        continue-on-error: true
         run: |
           set +e
           docker run --rm --network "${DOCKER_NETWORK}" \
+            --user root \
             -v "${{ github.workspace }}/${RESULTS_DIR}:/zap/wrk" \
+            -w /zap/wrk \
             "${ZAP_IMAGE}" \
             zap-baseline.py -t http://juice-shop:3000 \
             -r baseline-report.html -J baseline-report.json
           exit_code=$?
           set -e
+          echo "${exit_code}" > "${RESULTS_DIR}/zap-baseline.exit"
           # Exit 2 = issues found (expected for Juice Shop); 1 = scan error
           if [ "$exit_code" -ne 0 ] && [ "$exit_code" -ne 2 ]; then
+            echo "ZAP baseline scan failed with exit code: ${exit_code}"
             exit "$exit_code"
+          fi
+          if [ ! -s "${RESULTS_DIR}/baseline-report.json" ]; then
+            echo "ZAP baseline scan finished (exit ${exit_code}) but baseline-report.json was not created."
+            exit 1
           fi
           echo "ZAP baseline scan finished (exit code: ${exit_code})"
 
       - name: Run ZAP authenticated scan
+        id: zap-auth
+        continue-on-error: true
         run: |
           docker run --rm --network "${DOCKER_NETWORK}" \
             --user root \
@@ -203,8 +239,15 @@ jobs:
             -v "${{ github.workspace }}/labs/lab5:/zap/wrk" \
             "${ZAP_IMAGE}" \
             zap.sh -cmd -autorun /zap/wrk/scripts/zap-auth.yaml -port 8090
+          if [ ! -s "${RESULTS_DIR}/auth-report.json" ]; then
+            echo "ZAP authenticated scan finished but auth-report.json was not created."
+            exit 1
+          fi
+          echo "ZAP authenticated scan report ready."
 
       - name: Compare baseline vs authenticated reports
+        id: zap-compare
+        continue-on-error: true
         run: |
           bash labs/lab5/scripts/compare_zap.sh \
             "${RESULTS_DIR}/baseline-report.json" \
@@ -229,7 +272,34 @@ jobs:
             ${{ env.RESULTS_DIR }}/auth-report.json
             ${{ env.RESULTS_DIR }}/auth-report.html
             ${{ env.RESULTS_DIR }}/zap-comparison.txt
+            ${{ env.RESULTS_DIR }}/zap-baseline.exit
+          if-no-files-found: warn
           retention-days: 30
+
+      - name: Fail on ZAP scan error
+        run: |
+          missing=0
+          for report in baseline-report.json auth-report.json; do
+            if [ ! -s "${RESULTS_DIR}/${report}" ]; then
+              echo "Missing or empty report: ${RESULTS_DIR}/${report}"
+              missing=1
+            fi
+          done
+          if [ "${missing}" -eq 1 ]; then
+            echo "ZAP scan failed (report not produced)."
+            exit 1
+          fi
+          if [ "${{ steps.zap-compare.outcome }}" = "failure" ]; then
+            echo "ZAP compare step failed."
+            exit 1
+          fi
+          echo "ZAP reports ready."
+
+      - name: DAST security gate
+        run: |
+          python3 labs/lab5/scripts/security_gate.py zap \
+            "${RESULTS_DIR}/baseline-report.json" \
+            "${RESULTS_DIR}/auth-report.json"
 ```
 
 Commit and push:
