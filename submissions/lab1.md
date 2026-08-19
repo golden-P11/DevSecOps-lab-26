@@ -2,13 +2,15 @@
 
 ## Triage Report: OWASP Juice Shop
 
+Evidence below was collected on 2026-08-19 at approximately 17:00 ICT.
+
 ### Scope & Asset
 
 - Asset: OWASP Juice Shop (local lab instance)
 - Image: `bkimminich/juice-shop:v20.0.0`
-- Image digest: `REPLACE_WITH_OUTPUT_OF_DOCKER_INSPECT`
-- Host OS: `REPLACE_WITH_HOST_OS`
-- Docker version: `REPLACE_WITH_DOCKER_VERSION`
+- Image digest: `sha256:fd58bdc9745416afce8184ee0666278a436574633ea7880365153a63bfd418b0`
+- Host OS: macOS 27.0 (build 26A5416b), arm64
+- Docker version: `Docker version 29.7.2, build a7dcaa6`
 
 ### Deployment Details
 
@@ -22,53 +24,46 @@
 
 - Access URL: <http://127.0.0.1:3000>
 - Network exposure: 127.0.0.1 only? [x] Yes [ ] No
-- Container restart policy: `REPLACE_WITH_RESTART_POLICY`
-
-The container is bound only to `127.0.0.1`, so the deliberately vulnerable
-application is not exposed on every host network interface.
+- Container restart policy: `no`
 
 ### Health Check
-
-- HTTP code on `/`: `REPLACE_WITH_HTTP_STATUS`
-- Product count returned by `/api/Products`: `REPLACE_WITH_PRODUCT_COUNT`
-- Application version: `REPLACE_WITH_APPLICATION_VERSION`
-
-API check — first 200 characters of `/api/Products`:
+- HTTP code on `/`: `200`
+- API check — first 200 characters of `/api/Products`:
 
 ```json
-REPLACE_WITH_FIRST_200_CHARACTERS_OF_PRODUCTS_API_RESPONSE
+{"status":"success","data":[{"id":1,"name":"Apple Juice (1000ml)","description":"The all-time classic.","price":1.99,"deluxePrice":0.99,"image":"apple_juice.jpg","createdAt":"2026-08-19T09:46:38.765Z"
 ```
 
-Container uptime:
+- Container uptime:
 
 ```text
-REPLACE_WITH_DOCKER_PS_OUTPUT
+31cc245235b3  bkimminich/juice-shop:v20.0.0  Up 13 minutes  127.0.0.1:3000->3000/tcp
 ```
 
 ### Initial Surface Snapshot
 
-- Login/Registration visible: [ ] Yes [ ] No  
-  Notes: `REPLACE_WITH_REAL_OBSERVATION`
+- Login/Registration visible: [x] Yes [ ] No
+  Notes: Login page, `User Registration` form.
 
-- Product listing/search present: [ ] Yes [ ] No  
-  Notes: `REPLACE_WITH_REAL_OBSERVATION`
+- Product listing/search present: [x] Yes [ ] No
+  Notes: The homepage displays the `All Products` listing with 46 products, pagination (`1 – 15 of 46`), item-count selector, search control.
 
-- Admin or account area discoverable: [ ] Yes [ ] No  
-  Notes: `REPLACE_WITH_REAL_OBSERVATION`
+- Admin or account area discoverable: [x] Yes [ ] No
+  Notes: Account menu, Login page. No admin link was visible while unauthenticated.
 
-- Client-side errors in DevTools console: [ ] Yes [ ] No  
-  Notes: `REPLACE_WITH_REAL_OBSERVATION`
+- Client-side errors in DevTools console: [ ] Yes [x] No
+  Notes: No warning or error.
 
 - Pre-populated local storage/cookies:
-  - `REPLACE_WITH_KEY_OR_COOKIE_1`
-  - `REPLACE_WITH_KEY_OR_COOKIE_2`
-  - `REPLACE_WITH_ADDITIONAL_ITEMS_OR_REMOVE_THIS_LINE`
+  - Cookies: `language=en`
+  - Cookies: `welcomebanner...=dismiss`
+  - Local Storage: no entries observed
 
 - Product review request observed:
-  - Endpoint: `REPLACE_WITH_REVIEW_ENDPOINT`
-  - HTTP status: `REPLACE_WITH_STATUS_CODE`
-  - Authentication required: `REPLACE_WITH_YES_OR_NO`
-  - Notes: `REPLACE_WITH_REAL_OBSERVATION`
+  - Endpoint: `/rest/products/1/reviews`
+  - HTTP status: `200`
+  - Authentication required: No
+  - Notes: The v20 endpoint returned two reviews, including reviewer email addresses, without an authentication token. The lab hint's older `/api/Products/1/reviews` path returned HTTP 500 and disclosed a server-side stack trace.
 
 ### Security Headers — Quick Look
 
@@ -81,61 +76,51 @@ curl -I http://127.0.0.1:3000 2>&1 | head -20
 Observed output:
 
 ```text
-REPLACE_WITH_REAL_CURL_HEADER_OUTPUT
+HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+Feature-Policy: payment 'self'
+X-Recruiting: /#/jobs
+Accept-Ranges: bytes
+Cache-Control: public, max-age=0
+Last-Modified: Wed, 19 Aug 2026 09:46:39 GMT
+ETag: W/"26af-1a0196a6838"
+Content-Type: text/html; charset=UTF-8
+Content-Length: 9903
+Vary: Accept-Encoding
+Date: Wed, 19 Aug 2026 10:00:00 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
 ```
 
 Headers missing from the response:
 
-- [ ] `Content-Security-Policy`
-- [ ] `Strict-Transport-Security`
-- [ ] `X-Content-Type-Options: nosniff`
-- [ ] `X-Frame-Options`
-
-> Mark `[x]` only for headers that were actually missing from your response.
+- [x] `Content-Security-Policy`
+- [x] `Strict-Transport-Security`
+- [ ] `X-Content-Type-Options: nosniff` — present
+- [ ] `X-Frame-Options` — present as `SAMEORIGIN`
 
 ### Top 3 Risks Observed
-
-1. **REPLACE_WITH_RISK_NAME_1** —  
-   `Write 2–3 sentences explaining what you observed, why it matters, and map
-   it to one OWASP Top 10:2025 category such as A01–A10.`
-
-2. **REPLACE_WITH_RISK_NAME_2** —  
-   `Write 2–3 sentences explaining what you observed, why it matters, and map
-   it to one OWASP Top 10:2025 category such as A01–A10.`
-
-3. **REPLACE_WITH_RISK_NAME_3** —  
-   `Write 2–3 sentences explaining what you observed, why it matters, and map
-   it to one OWASP Top 10:2025 category such as A01–A10.`
+1. Missing security headers — No CSP or HSTS headers. OWASP A06: Security Misconfiguration
+2. Unauthenticated review data exposure — Reviewers’ email addresses are publicly accessible. OWASP A01: Broken Access Control
+3. Stack-trace disclosure — Error responses reveal internal paths and framework details. OWASP A10: Mishandling of Exceptional Conditions
 
 ## PR Template Setup
-
 - File: `.github/PULL_REQUEST_TEMPLATE.md`
 - Sections included: Goal / Changes / Testing / Artifacts & Screenshots
 - Checklist items:
-  - Title is clear and follows the `feat(labN): <topic>` style
+  - Title is clear and follows the `feat(lab1): complete Juice Shop` style
   - No secrets or large temporary files are committed
-  - Submission file exists at `submissions/labN.md`
-- Auto-fill verified: [x] Yes — the PR description showed the template before manual editing
-- Draft PR evidence: `REPLACE_WITH_DRAFT_PR_URL_OR_SCREENSHOT_PATH`
+  - Submission file exists at `submissions/lab1.md`
+ - Auto-fill verified: [x] Yes — PR description showed my template
+  - Draft PR evidence: https://github.com/golden-P11/DevSecOps-lab-26/pull/36
 
 ## Lab Completion Checklist
 
-- [x] Task 1 done — Juice Shop deployed and triage report created
-- [x] Task 2 done — `.github/PULL_REQUEST_TEMPLATE.md` created and auto-fill verified
-- [ ] Bonus done — `.github/workflows/lab1-smoke.yml` runs successfully
+- [x] Task 1 — CLI/API triage is complete; .
+- [x] Task 2 — PR template exists;
+- [ ] Bonus — workflow file exists, Lab 1 Juice Shop Smoke Test is marked disabled.
 
-## Bonus: CI Smoke Test
 
-> Remove this entire section if you did not complete the bonus task.
-
-- Workflow file: `.github/workflows/lab1-smoke.yml`
-- Trigger: `pull_request` on `main`
-- Workflow permissions: `contents: read`
-- Run URL: `REPLACE_WITH_GREEN_ACTIONS_RUN_URL`
-- Workflow run duration: `REPLACE_WITH_DURATION`
-
-Curl response excerpt:
-
-```text
-REPLACE_WITH_SUCCESSFUL_HTTP_200_EXCERPT
-```
+![PR template auto-fill](screenshots/lab1-pr-template.png)
