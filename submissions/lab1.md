@@ -121,3 +121,6 @@ Headers missing from the response:
 - [x] Task 1 — CLI/API triage is complete; .
 - [x] Task 2 — PR template exists;
 - [ ] Bonus — workflow file exists, Lab 1 Juice Shop Smoke Test is marked disabled.
+
+
+![PR template auto-fill](screenshots/lab1-pr-template.png)
