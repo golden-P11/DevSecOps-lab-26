@@ -5,7 +5,7 @@
 ![points](https://img.shields.io/badge/points-2%2B4-orange)
 ![tech](https://img.shields.io/badge/tech-Cosign%20%2B%20GitHub%20Actions-informational)
 
-> **Goal:** Sign a release tarball with `cosign sign-blob` (Codecov 2021 mitigation pattern), then automate Cosign sign + attest + blob-verify in a GitHub Actions workflow.
+> **Goal:** Sign a release tarball with `cosign sign-blob` locally (Codecov 2021 mitigation pattern), then automate a release-style supply-chain pipeline in GitHub Actions: gate on Labs 4–7 checks, keyless Cosign sign + SBOM attestation to GHCR, and SLSA Level 3 provenance.
 > **Deliverable:** A PR from `feature/lab8.3` with `.github/workflows/lab8-supply-chain-security.yml` and `submissions/lab8.3.md`. Submit PR link via Moodle.
 > **Prerequisite:** [Lab 8.1](lab8.1.md) recommended — you should understand Cosign keyed signing before automating it in CI.
 
@@ -16,8 +16,8 @@
 ## Overview
 
 In this lab you will practice:
-- **`cosign sign-blob`** — what would have stopped the Codecov 2021 attack
-- **CI automation** — Cosign image sign/verify, SBOM + provenance attestation, and blob signing on every push and pull request
+- **`cosign sign-blob`** — what would have stopped the Codecov 2021 attack (local Bonus task)
+- **CI automation** — a release-style supply-chain pipeline that gates on Labs 4–7 checks, pushes to GHCR, then **keyless Cosign** sign + CycloneDX SBOM attestation + **SLSA Level 3** provenance via OIDC
 
 Reference workflow: [`.github/workflows/lab8-supply-chain-security.yml`](../.github/workflows/lab8-supply-chain-security.yml)
 
@@ -30,8 +30,8 @@ Reference workflow: [`.github/workflows/lab8-supply-chain-security.yml`](../.git
 - Familiarity with digest-bound signing and tamper demos
 
 **This lab adds:**
-- Local blob signing + tamper verification
-- A reusable supply-chain CI pipeline on GitHub-hosted runners
+- Local blob signing + tamper verification (Bonus)
+- A reusable supply-chain CI pipeline on GitHub-hosted runners: gate jobs → GHCR push → keyless sign + attest → SLSA provenance
 
 ---
 
@@ -159,7 +159,7 @@ that would have caught it.
 
 **Objective:** Copy the reference workflow into your fork, push it, trigger a run, and document what each job and step does.
 
-> **Green status requirement:** This pipeline is designed to **pass with green status** on any fork with Actions enabled — no pre-committed SBOM file required. The attestation job generates a CycloneDX SBOM with Syft at runtime. Each job uses an **ephemeral Cosign keypair** on the runner (CI demo keys — not your Lab 8.1 local keys). All three jobs must complete successfully.
+> **Green status requirement:** This pipeline is designed to **pass with green status** on any fork with Actions enabled and **GitHub Packages (GHCR) write** permission for `GITHUB_TOKEN`. No pre-committed SBOM file is required — Syft generates CycloneDX at runtime. Signing uses **Cosign keyless** via GitHub OIDC (not your Lab 8.1 local keypair). All gate jobs plus `sign-and-attest` and `slsa-provenance` must complete successfully.
 
 ### 8.3.6: Create the workflow file
 
@@ -173,6 +173,7 @@ nano .github/workflows/lab8-supply-chain-security.yml
 Paste the following content (matches the [course reference workflow](../.github/workflows/lab8-supply-chain-security.yml)):
 
 ```yaml
+# Supply-chain release pipeline — runs after L4/L5/L6/L7 gate jobs pass
 name: lab8-Supply Chain Security
 
 on:
@@ -182,112 +183,121 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  actions: write
-
 env:
   IMAGE: bkimminich/juice-shop:v20.0.0
-  LOCAL_IMAGE: localhost:5000/juice-shop:v20.0.0
+  GHCR_IMAGE: ghcr.io/${{ github.repository }}/juice-shop
+  IMAGE_TAG: v20.0.0
   RESULTS_DIR: labs/lab8/results
-  COSIGN_PASSWORD: ci-lab8-passphrase
 
 jobs:
-  cosign-sign-verify:
-    name: Cosign — Sign + Verify Image
+  test:
+    name: Gate — Base CI (Lab 1)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Base CI gate
+        run: |
+          test -f .github/workflows/lab1-smoke.yml
+          echo "Base CI gate passed (Lab 1 smoke workflow present)"
+
+  sast:
+    name: Gate — SAST (Lab 5)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: SAST gate
+        run: |
+          test -f .github/workflows/lab5-sast-dast.yml
+          test -f labs/lab5/scripts/security_gate.py
+          echo "SAST gate passed (Lab 5 workflow + security gate present)"
+
+  dast:
+    name: Gate — DAST (Lab 5)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: DAST gate
+        run: |
+          test -f labs/lab5/scripts/zap-auth.yaml
+          test -f labs/lab5/scripts/compare_zap.sh
+          echo "DAST gate passed (Lab 5 ZAP automation present)"
+
+  image-scan:
+    name: Gate — Image Scan (Lab 4 / Lab 7)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Scan Juice Shop image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+
+      - name: Image scan gate
+        run: |
+          test -f .github/workflows/lab4-sbom-sca.yml
+          test -f .github/workflows/lab7-container-security.yml
+          echo "Image scan gate passed (Lab 4 + Lab 7 workflows present)"
+
+  sign-and-attest:
+    name: Cosign — Keyless Sign + SBOM Attestation
+    needs: [test, sast, dast, image-scan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+      attestations: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      image: ${{ env.GHCR_IMAGE }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Juice Shop to GHCR
+        id: build
+        run: |
+          mkdir -p "${RESULTS_DIR}"
+          docker pull "${IMAGE}"
+          docker tag "${IMAGE}" "${GHCR_IMAGE}:${IMAGE_TAG}"
+          docker push "${GHCR_IMAGE}:${IMAGE_TAG}"
+          DIGEST=$(docker inspect "${GHCR_IMAGE}:${IMAGE_TAG}" \
+            --format='{{index .RepoDigests 0}}' | cut -d@ -f2)
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "${GHCR_IMAGE}@${DIGEST}" | tee "${RESULTS_DIR}/juice-shop-digest.txt"
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3.7.0
         with:
           cosign-release: v2.4.1
 
-      - name: Start local registry
-        run: |
-          docker run -d --name lab8-registry \
-            -p 127.0.0.1:5000:5000 \
-            registry:2
-          sleep 3
-
-      - name: Push Juice Shop to local registry
-        run: |
-          mkdir -p "${RESULTS_DIR}"
-          docker pull "${IMAGE}"
-          docker tag "${IMAGE}" "${LOCAL_IMAGE}"
-          # Capture digest from push output — NOT RepoDigests[0], which points at Docker Hub
-          DIGEST=$(docker push "${LOCAL_IMAGE}" 2>&1 | awk '/digest:/ {print $3}')
-          echo "localhost:5000/juice-shop@${DIGEST}" > "${RESULTS_DIR}/juice-shop-digest.txt"
-          cat "${RESULTS_DIR}/juice-shop-digest.txt"
-
-      - name: Generate ephemeral Cosign keypair
-        run: cosign generate-key-pair
-
-      - name: Sign and verify image digest
-        id: cosign-sign-verify
+      - name: Cosign keyless sign
+        id: cosign-sign
         continue-on-error: true
         run: |
-          DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
-          cosign sign \
-            --key cosign.key \
-            --yes \
-            --tlog-upload=false \
-            --allow-insecure-registry \
-            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/cosign-sign.log"
-          cosign verify \
-            --key cosign.pub \
-            --insecure-ignore-tlog \
-            --allow-insecure-registry \
-            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/cosign-verify.json"
-
-      - name: Upload sign-verify artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lab8-cosign-sign-verify
-          path: |
-            ${{ env.RESULTS_DIR }}/
-            cosign.pub
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Fail on Cosign sign or verify error
-        if: steps.cosign-sign-verify.outcome == 'failure'
-        run: exit 1
-
-  sbom-provenance-attest:
-    name: Cosign — SBOM + Provenance Attestation
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.7.0
-        with:
-          cosign-release: v2.4.1
-
-      - name: Start local registry
-        run: |
-          docker run -d --name lab8-registry \
-            -p 127.0.0.1:5000:5000 \
-            registry:2
-          sleep 3
-
-      - name: Push Juice Shop to local registry
-        run: |
-          mkdir -p "${RESULTS_DIR}"
-          docker pull "${IMAGE}"
-          docker tag "${IMAGE}" "${LOCAL_IMAGE}"
-          DIGEST=$(docker push "${LOCAL_IMAGE}" 2>&1 | awk '/digest:/ {print $3}')
-          echo "localhost:5000/juice-shop@${DIGEST}" > "${RESULTS_DIR}/juice-shop-digest.txt"
-          cat "${RESULTS_DIR}/juice-shop-digest.txt"
+          cosign sign --yes "${GHCR_IMAGE}@${{ steps.build.outputs.digest }}" \
+            2>&1 | tee "${RESULTS_DIR}/cosign-sign.log"
 
       - name: Generate CycloneDX SBOM with Syft
         id: syft-sbom
@@ -299,137 +309,61 @@ jobs:
           output-file: ${{ env.RESULTS_DIR }}/juice-shop.cdx.json
           upload-artifact: false
 
-      - name: Generate ephemeral Cosign keypair
-        run: cosign generate-key-pair
-
-      - name: Attach CycloneDX SBOM attestation
+      - name: Attach SBOM attestation
         id: cosign-sbom-attest
         continue-on-error: true
         run: |
-          DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
-          cosign attest \
-            --key cosign.key \
+          cosign attest --yes \
             --type cyclonedx \
             --predicate "${RESULTS_DIR}/juice-shop.cdx.json" \
-            --tlog-upload=false \
-            --allow-insecure-registry \
-            --yes \
-            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/sbom-attest.log"
+            "${GHCR_IMAGE}@${{ steps.build.outputs.digest }}" \
+            2>&1 | tee "${RESULTS_DIR}/sbom-attest.log"
           cosign verify-attestation \
-            --key cosign.pub \
-            --insecure-ignore-tlog \
             --type cyclonedx \
-            --allow-insecure-registry \
-            "${DIGEST}" | jq -r '.payload | @base64d | fromjson | .predicate' \
+            "${GHCR_IMAGE}@${{ steps.build.outputs.digest }}" \
+            | jq -r '.[0].payload | @base64d | fromjson | .predicate' \
             > "${RESULTS_DIR}/sbom-from-attestation.json"
 
-      - name: Attach SLSA provenance attestation
-        id: cosign-provenance-attest
+      - name: Verify keyless signature
+        id: cosign-verify
         continue-on-error: true
         run: |
-          DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
-          jq -n \
-            --arg repo "${{ github.repository }}" \
-            --arg sha "${{ github.sha }}" \
-            '{
-              builder: { id: ("https://github.com/" + $repo + "/actions") },
-              buildType: "https://example.com/lab8/ci-build",
-              invocation: {
-                configSource: {
-                  uri: ("https://github.com/" + $repo),
-                  digest: { sha1: $sha }
-                }
-              }
-            }' > /tmp/predicate-only.json
-          cosign attest \
-            --key cosign.key \
-            --type slsaprovenance \
-            --predicate /tmp/predicate-only.json \
-            --tlog-upload=false \
-            --allow-insecure-registry \
-            --yes \
-            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/provenance-attest.log"
-          cosign verify-attestation \
-            --key cosign.pub \
-            --insecure-ignore-tlog \
-            --type slsaprovenance \
-            --allow-insecure-registry \
-            "${DIGEST}" > "${RESULTS_DIR}/provenance-verify.json"
+          cosign verify "${GHCR_IMAGE}@${{ steps.build.outputs.digest }}" \
+            2>&1 | tee "${RESULTS_DIR}/cosign-verify.json"
 
-      - name: Upload attestation artifacts
+      - name: Upload sign-and-attest artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lab8-sbom-provenance-attest
-          path: ${{ env.RESULTS_DIR }}/
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Fail on SBOM or attestation error
-        if: |
-          steps.syft-sbom.outcome == 'failure' ||
-          steps.cosign-sbom-attest.outcome == 'failure' ||
-          steps.cosign-provenance-attest.outcome == 'failure'
-        run: exit 1
-
-  blob-sign-verify:
-    name: Cosign — Blob Sign + Verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.7.0
-        with:
-          cosign-release: v2.4.1
-
-      - name: Create release artifact
-        run: |
-          mkdir -p "${RESULTS_DIR}"
-          cat > /tmp/install.sh <<'EOF'
-          #!/bin/bash
-          echo "Welcome to my-cool-tool installer"
-          echo "Running setup..."
-          EOF
-          chmod +x /tmp/install.sh
-          tar -czf "${RESULTS_DIR}/my-tool.tar.gz" -C /tmp install.sh
-
-      - name: Generate ephemeral Cosign keypair
-        run: cosign generate-key-pair
-
-      - name: Sign and verify blob
-        id: cosign-blob-sign
-        continue-on-error: true
-        run: |
-          cosign sign-blob \
-            --key cosign.key \
-            --yes \
-            --tlog-upload=false \
-            --bundle "${RESULTS_DIR}/my-tool.tar.gz.bundle" \
-            "${RESULTS_DIR}/my-tool.tar.gz" 2>&1 | tee "${RESULTS_DIR}/blob-sign.log"
-          cosign verify-blob \
-            --key cosign.pub \
-            --bundle "${RESULTS_DIR}/my-tool.tar.gz.bundle" \
-            --insecure-ignore-tlog \
-            "${RESULTS_DIR}/my-tool.tar.gz" 2>&1 | tee "${RESULTS_DIR}/blob-verify.log"
-
-      - name: Upload blob signing artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lab8-blob-sign-verify
+          name: lab8-sign-and-attest
           path: |
             ${{ env.RESULTS_DIR }}/
-            cosign.pub
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Fail on blob sign or verify error
-        if: steps.cosign-blob-sign.outcome == 'failure'
+      - name: Fail on sign or attestation error
+        if: |
+          steps.cosign-sign.outcome == 'failure' ||
+          steps.syft-sbom.outcome == 'failure' ||
+          steps.cosign-sbom-attest.outcome == 'failure' ||
+          steps.cosign-verify.outcome == 'failure'
         run: exit 1
+
+  slsa-provenance:
+    name: SLSA — Container Provenance (Level 3)
+    needs: sign-and-attest
+    permissions:
+      actions: read
+      id-token: write
+      packages: write
+      attestations: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.0.0
+    with:
+      image: ${{ needs.sign-and-attest.outputs.image }}
+      digest: ${{ needs.sign-and-attest.outputs.digest }}
+      registry-username: ${{ github.actor }}
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 Commit and push:
@@ -449,13 +383,17 @@ The workflow runs automatically when you:
 
 1. Open your fork on GitHub → **Actions** tab
 2. Find the **lab8-Supply Chain Security** workflow run triggered by your push or PR
-3. Confirm all three jobs complete with **green status** (✅):
-   - `Cosign — Sign + Verify Image`
-   - `Cosign — SBOM + Provenance Attestation`
-   - `Cosign — Blob Sign + Verify`
-4. Download the `lab8-cosign-sign-verify`, `lab8-sbom-provenance-attest`, and `lab8-blob-sign-verify` artifacts
+3. Confirm all jobs complete with **green status** (✅):
+   - `Gate — Base CI (Lab 1)`
+   - `Gate — SAST (Lab 5)`
+   - `Gate — DAST (Lab 5)`
+   - `Gate — Image Scan (Lab 4 / Lab 7)`
+   - `Cosign — Keyless Sign + SBOM Attestation`
+   - `SLSA — Container Provenance (Level 3)`
+4. Download the `lab8-sign-and-attest` artifact
+5. Confirm the image appears under **Packages** on your fork (`ghcr.io/<owner>/<repo>/juice-shop`)
 
-> **Note:** CI uses ephemeral keys (`COSIGN_PASSWORD` in the workflow env) — separate from your Lab 8.1 local keypair. Signatures are pushed to the **local registry** (`localhost:5000`), not Docker Hub — the workflow captures the digest from `docker push` output, not `RepoDigests[0]` (which would point at Docker Hub and fail with 401).
+> **Note:** CI uses **Cosign keyless** signing via GitHub OIDC — separate from your Lab 8.1 local keypair. Signatures and attestations are bound to the **GHCR digest** (`ghcr.io/${{ github.repository }}/juice-shop@sha256:…`), not a local registry. Ensure **Settings → Actions → General → Workflow permissions** allows `Read and write permissions` so `GITHUB_TOKEN` can push to GHCR.
 
 ### 8.3.8: Document in `submissions/lab8.3.md`
 
@@ -468,44 +406,54 @@ Append to your submission file:
 Paste the full content of `.github/workflows/lab8-supply-chain-security.yml`:
 
 ### Workflow run
-- Direct link to a **green** workflow run (all three jobs passed): <URL>
-- Confirm artifacts `lab8-cosign-sign-verify`, `lab8-sbom-provenance-attest`, and `lab8-blob-sign-verify` were uploaded
+- Direct link to a **green** workflow run (all gate jobs + sign-and-attest + slsa-provenance passed): <URL>
+- Confirm artifact `lab8-sign-and-attest` was uploaded
+- Confirm GHCR package `juice-shop` exists on your fork
 
-### Job: `cosign-sign-verify` — step explanation
+### Gate jobs (`test`, `sast`, `dast`, `image-scan`) — explanation
+Explain the purpose of each gate job (2-3 sentences each):
+- Why does `sign-and-attest` use `needs: [test, sast, dast, image-scan]`?
+- How do these gates map to Labs 1, 4, 5, and 7?
+- In production, would these be separate workflows or jobs in one release pipeline?
+
+### Job: `sign-and-attest` — step explanation
 Explain the purpose of each step (2-3 sentences each):
 
 #### Triggers (`on:`)
 What events start this workflow, and why run supply-chain checks on both `push` and `pull_request`?
 
-#### Step: Push Juice Shop to local registry
-Why capture the digest from `docker push` output instead of `docker inspect ... RepoDigests[0]`?
+#### Permissions (`id-token`, `packages`, `attestations`)
+Why does keyless Cosign require `id-token: write`? What does `packages: write` enable?
 
-#### Step: Sign and verify image digest
-Why sign by **digest** instead of tag? Why use `--allow-insecure-registry` and `--tlog-upload=false`?
+#### Step: Build and push Juice Shop to GHCR
+Why push to `ghcr.io/${{ github.repository }}/juice-shop` instead of a local registry? Why capture digest after push?
 
-#### Step: Upload sign-verify artifacts
-What artifact is uploaded when sign/verify **fails**, and why use `continue-on-error` + `if: always()`?
-
-### Job: `sbom-provenance-attest` — step explanation
-Explain the purpose of each step (2-3 sentences each):
+#### Step: Cosign keyless sign
+How does keyless signing differ from the keyed signing you did in Lab 8.1? Why sign by **digest** instead of tag?
 
 #### Step: Generate CycloneDX SBOM with Syft
 Why generate the SBOM in CI instead of relying on a committed `labs/lab4/juice-shop.cdx.json`?
 
-#### Step: Attach CycloneDX SBOM attestation
+#### Step: Attach SBOM attestation
 How does this CI step relate to your Lab 8.2 local attestation work?
 
-#### Step: Attach SLSA provenance attestation
-What build metadata does the predicate capture from `${{ github.repository }}` and `${{ github.sha }}`?
+#### Step: Verify keyless signature
+What trust root does `cosign verify` use in keyless mode (vs `--key cosign.pub` locally)?
 
-### Job: `blob-sign-verify` — step explanation
-Explain the purpose of each step (2-3 sentences each):
+#### Step: Upload sign-and-attest artifacts
+What artifact is uploaded when sign/attest **fails**, and why use `continue-on-error` + `if: always()`?
 
-#### Step: Sign and verify blob
-How does this CI job mirror the Bonus task's Codecov 2021 mitigation pattern?
+### Job: `slsa-provenance` — explanation
+Explain (2-3 sentences each):
+- Why is SLSA provenance a **separate reusable workflow job** instead of a shell step?
+- What does `generator_container_slsa3.yml@v2.0.0` add beyond the manual provenance predicate from Lab 8.2?
+- How do `image` and `digest` inputs tie this job to `sign-and-attest`?
+
+### Bonus vs CI (blob signing)
+How does the Bonus task's local `cosign sign-blob` differ from this CI pipeline's image signing? When would you use each?
 
 ### One-paragraph reflection (2-3 sentences)
-How does this CI pipeline complement the local Cosign work from Lab 8.1, Lab 8.2, and the Bonus task?
+How does this CI pipeline complement the local Cosign work from Lab 8.1 and Lab 8.2?
 When would you still run signing locally instead of (or in addition to) CI?
 ```
 
@@ -527,10 +475,11 @@ Open a PR to `main` and confirm the **lab8-Supply Chain Security** workflow appe
 PR checklist body:
 
 ```text
-- [ ] Bonus — Blob signed + verify-blob success + tamper failure
+- [ ] Bonus — Blob signed + verify-blob success + tamper failure (local)
 - [ ] Task 3 — lab8-supply-chain-security.yml committed
-- [ ] lab8-Supply Chain Security workflow: all three jobs green + artifacts uploaded
-- [ ] Submission includes green workflow run URL + job step explanations + CI vs local reflection
+- [ ] lab8-Supply Chain Security workflow: all gate jobs + sign-and-attest + slsa-provenance green
+- [ ] GHCR package visible + lab8-sign-and-attest artifact uploaded
+- [ ] Submission includes green workflow run URL + gate/sign/SLSA explanations + CI vs local reflection
 ```
 
 ---
@@ -543,12 +492,13 @@ PR checklist body:
 - ✅ Codecov 2021 mitigation answer correctly identifies the role of `cosign verify-blob`
 
 ### Task 3 (4 pts)
-- ✅ `.github/workflows/lab8-supply-chain-security.yml` exists and matches the reference structure (three jobs: sign/verify, SBOM+provenance attest, blob sign/verify)
-- ✅ Submission includes a direct link to a **green** workflow run where all three jobs passed
-- ✅ Sign/verify job steps explained accurately (digest binding, `--allow-insecure-registry`, triggers)
-- ✅ SBOM attestation job explained with connection to Lab 8.2
-- ✅ Blob signing job explained with Codecov mitigation mapping
-- ✅ Reflection addresses how CI complements local Lab 8.1 / Lab 8.2 / Bonus work
+- ✅ `.github/workflows/lab8-supply-chain-security.yml` exists and matches the reference structure (four gate jobs + `sign-and-attest` + `slsa-provenance`)
+- ✅ Submission includes a direct link to a **green** workflow run where all jobs passed
+- ✅ Gate jobs explained with mapping to Labs 1/4/5/7 and `needs:` dependency rationale
+- ✅ Keyless sign + SBOM attestation steps explained (OIDC, GHCR digest, Syft in CI)
+- ✅ SLSA reusable workflow job explained with connection to Lab 8.2
+- ✅ Bonus vs CI blob signing distinction addressed
+- ✅ Reflection addresses how CI complements local Lab 8.1 / Lab 8.2 work
 
 ---
 
@@ -557,7 +507,7 @@ PR checklist body:
 | Task | Points | Criteria |
 |------|-------:|----------|
 | **Bonus Task** — Blob signing | **2** | sign-blob pass + verify-blob pass on original + fail on tampered + Codecov mapping |
-| **Task 3** — Supply Chain CI | **4** | Workflow committed + green run URL + job explanations + reflection |
+| **Task 3** — Supply Chain CI | **4** | Workflow committed + green run URL + gate/sign/SLSA explanations + reflection |
 | **Total** | **6** | |
 
 ---

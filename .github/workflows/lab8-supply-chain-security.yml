@@ -1,3 +1,4 @@
+# Supply-chain release pipeline — runs after L4/L5/L6/L7 gate jobs pass
 name: lab8-Supply Chain Security
 
 on:
@@ -7,112 +8,121 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  actions: write
-
 env:
   IMAGE: bkimminich/juice-shop:v20.0.0
-  LOCAL_IMAGE: localhost:5000/juice-shop:v20.0.0
+  GHCR_IMAGE: ghcr.io/${{ github.repository }}/juice-shop
+  IMAGE_TAG: v20.0.0
   RESULTS_DIR: labs/lab8/results
-  COSIGN_PASSWORD: ci-lab8-passphrase
 
 jobs:
-  cosign-sign-verify:
-    name: Cosign — Sign + Verify Image
+  test:
+    name: Gate — Base CI (Lab 1)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Base CI gate
+        run: |
+          test -f .github/workflows/lab1-smoke.yml
+          echo "Base CI gate passed (Lab 1 smoke workflow present)"
+
+  sast:
+    name: Gate — SAST (Lab 5)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: SAST gate
+        run: |
+          test -f .github/workflows/lab5-sast-dast.yml
+          test -f labs/lab5/scripts/security_gate.py
+          echo "SAST gate passed (Lab 5 workflow + security gate present)"
+
+  dast:
+    name: Gate — DAST (Lab 5)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: DAST gate
+        run: |
+          test -f labs/lab5/scripts/zap-auth.yaml
+          test -f labs/lab5/scripts/compare_zap.sh
+          echo "DAST gate passed (Lab 5 ZAP automation present)"
+
+  image-scan:
+    name: Gate — Image Scan (Lab 4 / Lab 7)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Scan Juice Shop image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+
+      - name: Image scan gate
+        run: |
+          test -f .github/workflows/lab4-sbom-sca.yml
+          test -f .github/workflows/lab7-container-security.yml
+          echo "Image scan gate passed (Lab 4 + Lab 7 workflows present)"
+
+  sign-and-attest:
+    name: Cosign — Keyless Sign + SBOM Attestation
+    needs: [test, sast, dast, image-scan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+      attestations: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      image: ${{ env.GHCR_IMAGE }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Juice Shop to GHCR
+        id: build
+        run: |
+          mkdir -p "${RESULTS_DIR}"
+          docker pull "${IMAGE}"
+          docker tag "${IMAGE}" "${GHCR_IMAGE}:${IMAGE_TAG}"
+          docker push "${GHCR_IMAGE}:${IMAGE_TAG}"
+          DIGEST=$(docker inspect "${GHCR_IMAGE}:${IMAGE_TAG}" \
+            --format='{{index .RepoDigests 0}}' | cut -d@ -f2)
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "${GHCR_IMAGE}@${DIGEST}" | tee "${RESULTS_DIR}/juice-shop-digest.txt"
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3.7.0
         with:
           cosign-release: v2.4.1
 
-      - name: Start local registry
-        run: |
-          docker run -d --name lab8-registry \
-            -p 127.0.0.1:5000:5000 \
-            registry:2
-          sleep 3
-
-      - name: Push Juice Shop to local registry
-        run: |
-          mkdir -p "${RESULTS_DIR}"
-          docker pull "${IMAGE}"
-          docker tag "${IMAGE}" "${LOCAL_IMAGE}"
-          # Capture digest from push output — NOT RepoDigests[0], which points at Docker Hub
-          DIGEST=$(docker push "${LOCAL_IMAGE}" 2>&1 | awk '/digest:/ {print $3}')
-          echo "localhost:5000/juice-shop@${DIGEST}" > "${RESULTS_DIR}/juice-shop-digest.txt"
-          cat "${RESULTS_DIR}/juice-shop-digest.txt"
-
-      - name: Generate ephemeral Cosign keypair
-        run: cosign generate-key-pair
-
-      - name: Sign and verify image digest
-        id: cosign-sign-verify
+      - name: Cosign keyless sign
+        id: cosign-sign
         continue-on-error: true
         run: |
-          DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
-          cosign sign \
-            --key cosign.key \
-            --yes \
-            --tlog-upload=false \
-            --allow-insecure-registry \
-            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/cosign-sign.log"
-          cosign verify \
-            --key cosign.pub \
-            --insecure-ignore-tlog \
-            --allow-insecure-registry \
-            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/cosign-verify.json"
-
-      - name: Upload sign-verify artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lab8-cosign-sign-verify
-          path: |
-            ${{ env.RESULTS_DIR }}/
-            cosign.pub
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Fail on Cosign sign or verify error
-        if: steps.cosign-sign-verify.outcome == 'failure'
-        run: exit 1
-
-  sbom-provenance-attest:
-    name: Cosign — SBOM + Provenance Attestation
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.7.0
-        with:
-          cosign-release: v2.4.1
-
-      - name: Start local registry
-        run: |
-          docker run -d --name lab8-registry \
-            -p 127.0.0.1:5000:5000 \
-            registry:2
-          sleep 3
-
-      - name: Push Juice Shop to local registry
-        run: |
-          mkdir -p "${RESULTS_DIR}"
-          docker pull "${IMAGE}"
-          docker tag "${IMAGE}" "${LOCAL_IMAGE}"
-          DIGEST=$(docker push "${LOCAL_IMAGE}" 2>&1 | awk '/digest:/ {print $3}')
-          echo "localhost:5000/juice-shop@${DIGEST}" > "${RESULTS_DIR}/juice-shop-digest.txt"
-          cat "${RESULTS_DIR}/juice-shop-digest.txt"
+          cosign sign --yes "${GHCR_IMAGE}@${{ steps.build.outputs.digest }}" \
+            2>&1 | tee "${RESULTS_DIR}/cosign-sign.log"
 
       - name: Generate CycloneDX SBOM with Syft
         id: syft-sbom
@@ -124,134 +134,58 @@ jobs:
           output-file: ${{ env.RESULTS_DIR }}/juice-shop.cdx.json
           upload-artifact: false
 
-      - name: Generate ephemeral Cosign keypair
-        run: cosign generate-key-pair
-
-      - name: Attach CycloneDX SBOM attestation
+      - name: Attach SBOM attestation
         id: cosign-sbom-attest
         continue-on-error: true
         run: |
-          DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
-          cosign attest \
-            --key cosign.key \
+          cosign attest --yes \
             --type cyclonedx \
             --predicate "${RESULTS_DIR}/juice-shop.cdx.json" \
-            --tlog-upload=false \
-            --allow-insecure-registry \
-            --yes \
-            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/sbom-attest.log"
+            "${GHCR_IMAGE}@${{ steps.build.outputs.digest }}" \
+            2>&1 | tee "${RESULTS_DIR}/sbom-attest.log"
           cosign verify-attestation \
-            --key cosign.pub \
-            --insecure-ignore-tlog \
             --type cyclonedx \
-            --allow-insecure-registry \
-            "${DIGEST}" | jq -r '.payload | @base64d | fromjson | .predicate' \
+            "${GHCR_IMAGE}@${{ steps.build.outputs.digest }}" \
+            | jq -r '.[0].payload | @base64d | fromjson | .predicate' \
             > "${RESULTS_DIR}/sbom-from-attestation.json"
 
-      - name: Attach SLSA provenance attestation
-        id: cosign-provenance-attest
+      - name: Verify keyless signature
+        id: cosign-verify
         continue-on-error: true
         run: |
-          DIGEST=$(cat "${RESULTS_DIR}/juice-shop-digest.txt")
-          jq -n \
-            --arg repo "${{ github.repository }}" \
-            --arg sha "${{ github.sha }}" \
-            '{
-              builder: { id: ("https://github.com/" + $repo + "/actions") },
-              buildType: "https://example.com/lab8/ci-build",
-              invocation: {
-                configSource: {
-                  uri: ("https://github.com/" + $repo),
-                  digest: { sha1: $sha }
-                }
-              }
-            }' > /tmp/predicate-only.json
-          cosign attest \
-            --key cosign.key \
-            --type slsaprovenance \
-            --predicate /tmp/predicate-only.json \
-            --tlog-upload=false \
-            --allow-insecure-registry \
-            --yes \
-            "${DIGEST}" 2>&1 | tee "${RESULTS_DIR}/provenance-attest.log"
-          cosign verify-attestation \
-            --key cosign.pub \
-            --insecure-ignore-tlog \
-            --type slsaprovenance \
-            --allow-insecure-registry \
-            "${DIGEST}" > "${RESULTS_DIR}/provenance-verify.json"
+          cosign verify "${GHCR_IMAGE}@${{ steps.build.outputs.digest }}" \
+            2>&1 | tee "${RESULTS_DIR}/cosign-verify.json"
 
-      - name: Upload attestation artifacts
+      - name: Upload sign-and-attest artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lab8-sbom-provenance-attest
-          path: ${{ env.RESULTS_DIR }}/
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Fail on SBOM or attestation error
-        if: |
-          steps.syft-sbom.outcome == 'failure' ||
-          steps.cosign-sbom-attest.outcome == 'failure' ||
-          steps.cosign-provenance-attest.outcome == 'failure'
-        run: exit 1
-
-  blob-sign-verify:
-    name: Cosign — Blob Sign + Verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.7.0
-        with:
-          cosign-release: v2.4.1
-
-      - name: Create release artifact
-        run: |
-          mkdir -p "${RESULTS_DIR}"
-          cat > /tmp/install.sh <<'EOF'
-          #!/bin/bash
-          echo "Welcome to my-cool-tool installer"
-          echo "Running setup..."
-          EOF
-          chmod +x /tmp/install.sh
-          tar -czf "${RESULTS_DIR}/my-tool.tar.gz" -C /tmp install.sh
-
-      - name: Generate ephemeral Cosign keypair
-        run: cosign generate-key-pair
-
-      - name: Sign and verify blob
-        id: cosign-blob-sign
-        continue-on-error: true
-        run: |
-          cosign sign-blob \
-            --key cosign.key \
-            --yes \
-            --tlog-upload=false \
-            --bundle "${RESULTS_DIR}/my-tool.tar.gz.bundle" \
-            "${RESULTS_DIR}/my-tool.tar.gz" 2>&1 | tee "${RESULTS_DIR}/blob-sign.log"
-          cosign verify-blob \
-            --key cosign.pub \
-            --bundle "${RESULTS_DIR}/my-tool.tar.gz.bundle" \
-            --insecure-ignore-tlog \
-            "${RESULTS_DIR}/my-tool.tar.gz" 2>&1 | tee "${RESULTS_DIR}/blob-verify.log"
-
-      - name: Upload blob signing artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: lab8-blob-sign-verify
+          name: lab8-sign-and-attest
           path: |
             ${{ env.RESULTS_DIR }}/
-            cosign.pub
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Fail on blob sign or verify error
-        if: steps.cosign-blob-sign.outcome == 'failure'
+      - name: Fail on sign or attestation error
+        if: |
+          steps.cosign-sign.outcome == 'failure' ||
+          steps.syft-sbom.outcome == 'failure' ||
+          steps.cosign-sbom-attest.outcome == 'failure' ||
+          steps.cosign-verify.outcome == 'failure'
         run: exit 1
+
+  slsa-provenance:
+    name: SLSA — Container Provenance (Level 3)
+    needs: sign-and-attest
+    permissions:
+      actions: read
+      id-token: write
+      packages: write
+      attestations: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.0.0
+    with:
+      image: ${{ needs.sign-and-attest.outputs.image }}
+      digest: ${{ needs.sign-and-attest.outputs.digest }}
+      registry-username: ${{ github.actor }}
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
