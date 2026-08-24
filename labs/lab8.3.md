@@ -185,7 +185,6 @@ on:
 
 env:
   IMAGE: bkimminich/juice-shop:v20.0.0
-  GHCR_IMAGE: ghcr.io/${{ github.repository }}/juice-shop
   IMAGE_TAG: v20.0.0
   RESULTS_DIR: labs/lab8/results
 
@@ -262,11 +261,20 @@ jobs:
       attestations: write
     outputs:
       digest: ${{ steps.build.outputs.digest }}
-      image: ${{ env.GHCR_IMAGE }}
+      image: ${{ steps.ghcr.outputs.image }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set GHCR image name (lowercase)
+        id: ghcr
+        run: |
+          # GHCR requires lowercase repository paths (github.repository may be mixed case)
+          GHCR_IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/juice-shop"
+          echo "GHCR_IMAGE=${GHCR_IMAGE}" >> "$GITHUB_ENV"
+          echo "image=${GHCR_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "Using GHCR image: ${GHCR_IMAGE}"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -391,9 +399,9 @@ The workflow runs automatically when you:
    - `Cosign — Keyless Sign + SBOM Attestation`
    - `SLSA — Container Provenance (Level 3)`
 4. Download the `lab8-sign-and-attest` artifact
-5. Confirm the image appears under **Packages** on your fork (`ghcr.io/<owner>/<repo>/juice-shop`)
+5. Confirm the image appears under **Packages** on your fork (`ghcr.io/<owner>/<repo>/juice-shop` — path is **lowercase** even if your repo name is mixed case)
 
-> **Note:** CI uses **Cosign keyless** signing via GitHub OIDC — separate from your Lab 8.1 local keypair. Signatures and attestations are bound to the **GHCR digest** (`ghcr.io/${{ github.repository }}/juice-shop@sha256:…`), not a local registry. Ensure **Settings → Actions → General → Workflow permissions** allows `Read and write permissions` so `GITHUB_TOKEN` can push to GHCR.
+> **Note:** CI uses **Cosign keyless** signing via GitHub OIDC — separate from your Lab 8.1 local keypair. Signatures and attestations are bound to the **GHCR digest** (`ghcr.io/<lowercase-repo>/juice-shop@sha256:…`). GHCR rejects uppercase in image paths, so the workflow lowercases `${{ github.repository }}` before push. Ensure **Settings → Actions → General → Workflow permissions** allows `Read and write permissions` so `GITHUB_TOKEN` can push to GHCR.
 
 ### 8.3.8: Document in `submissions/lab8.3.md`
 
@@ -425,8 +433,11 @@ What events start this workflow, and why run supply-chain checks on both `push` 
 #### Permissions (`id-token`, `packages`, `attestations`)
 Why does keyless Cosign require `id-token: write`? What does `packages: write` enable?
 
+#### Step: Set GHCR image name (lowercase)
+Why is this step required? What happens if `${{ github.repository }}` contains uppercase letters (e.g. `DevSecOps-lab-26`)?
+
 #### Step: Build and push Juice Shop to GHCR
-Why push to `ghcr.io/${{ github.repository }}/juice-shop` instead of a local registry? Why capture digest after push?
+Why push to `ghcr.io/<lowercase-repo>/juice-shop` instead of a local registry? Why capture digest after push?
 
 #### Step: Cosign keyless sign
 How does keyless signing differ from the keyed signing you did in Lab 8.1? Why sign by **digest** instead of tag?

@@ -10,7 +10,6 @@ on:
 
 env:
   IMAGE: bkimminich/juice-shop:v20.0.0
-  GHCR_IMAGE: ghcr.io/${{ github.repository }}/juice-shop
   IMAGE_TAG: v20.0.0
   RESULTS_DIR: labs/lab8/results
 
@@ -87,11 +86,20 @@ jobs:
       attestations: write
     outputs:
       digest: ${{ steps.build.outputs.digest }}
-      image: ${{ env.GHCR_IMAGE }}
+      image: ${{ steps.ghcr.outputs.image }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set GHCR image name (lowercase)
+        id: ghcr
+        run: |
+          # GHCR requires lowercase repository paths (github.repository may be mixed case)
+          GHCR_IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/juice-shop"
+          echo "GHCR_IMAGE=${GHCR_IMAGE}" >> "$GITHUB_ENV"
+          echo "image=${GHCR_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "Using GHCR image: ${GHCR_IMAGE}"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
